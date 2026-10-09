@@ -1,0 +1,104 @@
+@import 'tailwindcss';
+
+/*
+ * TeamFlow design tokens — the single source of truth for colour, type, radius, shadow and motion.
+ * Brand colours come from the Teamwork IT Solution identity (assessment brief): deep navy + bright yellow.
+ * Components use these via Tailwind utilities (bg-brand-800, text-accent-600 …); no hex codes elsewhere.
+ */
+@theme {
+  /* Brand — deep navy (primary). 800 is the brand colour. */
+  --color-brand-50: #eef2f9;
+  --color-brand-100: #dbe3f2;
+  --color-brand-200: #b7c6e4;
+  --color-brand-300: #8aa1cf;
+  --color-brand-400: #5876b3;
+  --color-brand-500: #34548f;
+  --color-brand-600: #24427a;
+  --color-brand-700: #1b3569;
+  --color-brand-800: #14295c;
+  --color-brand-900: #0d1c40;
+
+  /* Accent — bright yellow. Used sparingly: active markers, highlights, current-plan, progress. */
+  --color-accent-50: #fff9e6;
+  --color-accent-100: #fff0bf;
+  --color-accent-200: #ffe082;
+  --color-accent-400: #ffc933;
+  --color-accent-500: #f5b700;
+  --color-accent-600: #d49c00;
+  --color-accent-700: #876200; /* text on accent-50 ≥4.5:1 */
+
+  /* Neutral surfaces & text (slate family, aliased so intent is readable). */
+  --color-canvas: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-line: #e3e6eb;
+  --color-line-strong: #cfd4dc;
+  --color-ink: #161b26;
+  --color-ink-muted: #556070;
+  --color-ink-subtle: #626b7b; /* ≥4.5:1 on white and canvas (WCAG AA) */
+
+  /* Semantic */
+  --color-success-50: #ecfaf2;
+  --color-success-600: #138a4b;
+  --color-success-700: #0f6e3c;
+  --color-warning-50: #fff5e8;
+  --color-warning-600: #c2610a;
+  --color-warning-700: #9a4b06;
+  --color-danger-50: #fdeeee;
+  --color-danger-600: #cc2b2b;
+  --color-danger-700: #a51f1f;
+  --color-info-50: #ebf3fd;
+  --color-info-600: #2364c4;
+  --color-violet-50: #f3effd;
+  --color-violet-600: #6b46c1;
+
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  --shadow-xs: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-sm: 0 1px 3px rgb(16 24 40 / 0.08), 0 1px 2px rgb(16 24 40 / 0.04);
+  --shadow-lg: 0 12px 32px -8px rgb(16 24 40 / 0.18), 0 4px 8px -4px rgb(16 24 40 / 0.08);
+
+  --animate-fade-in: fade-in 140ms ease-out;
+  --animate-pop-in: pop-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-in-right: slide-in-right 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-in-up: slide-in-up 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-in-left: slide-in-left 200ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes pop-in { from { opacity: 0; transform: translateY(4px) scale(0.98); } to { opacity: 1; transform: none; } }
+  @keyframes slide-in-right { from { transform: translateX(100%); } to { transform: none; } }
+  @keyframes slide-in-left { from { transform: translateX(-100%); } to { transform: none; } }
+  @keyframes slide-in-up { from { transform: translateY(100%); } to { transform: none; } }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-canvas text-ink font-sans text-sm antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--color-accent-200);
+  }
+  input[type='date']::-webkit-calendar-picker-indicator {
+    opacity: 0.6;
+    cursor: pointer;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}

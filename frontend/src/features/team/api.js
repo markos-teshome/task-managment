@@ -1,0 +1,38 @@
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '../../lib/api.js';
+import { invalidate } from '../../lib/query.js';
+import { useAuth } from '../auth/AuthProvider.jsx';
+
+export const useMembers = (params) =>
+  useQuery({ queryKey: ['members', params], queryFn: () => api.list('/users', params), placeholderData: keepPreviousData });
+
+/** Active members for pickers. Only fetched when the caller may use them. */
+export function useMemberOptions() {
+  const { canAny } = useAuth();
+  return useQuery({
+    queryKey: ['member-options'],
+    queryFn: () => api.get('/users/options'),
+    enabled: canAny('USER_VIEW', 'TASK_ASSIGN', 'PROJECT_CREATE', 'PROJECT_UPDATE'),
+    staleTime: 60_000,
+  });
+}
+
+/** Current organization incl. plan limits and live usage (seats, projects). */
+export const useOrganization = () => useQuery({ queryKey: ['organization'], queryFn: () => api.get('/organizations/current') });
+
+function useMemberMutation(fn) {
+  const qc = useQueryClient();
+  const { reloadMe } = useAuth();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      invalidate(qc, 'members', 'member-options', 'organization', 'activities', 'dashboard', 'roles', 'subscription');
+      reloadMe().catch(() => {});
+    },
+  });
+}
+
+export const useInviteMember = () => useMemberMutation((body) => api.post('/users', body));
+export const useUpdateMember = () => useMemberMutation(({ id, ...body }) => api.patch(`/users/${id}`, body));
+export const useRemoveMember = () => useMemberMutation((id) => api.delete(`/users/${id}`));
+export const useResendInvitation = () => useMutation({ mutationFn: (id) => api.post(`/users/${id}/resend-invitation`) });

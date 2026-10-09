@@ -1,0 +1,419 @@
+// TeamFlow data model
+//
+// Tenancy model: shared database, shared schema, row-level ownership via `organizationId`.
+// Every tenant-owned table carries `organizationId`. Where Prisma allows it, child rows
+// reference their parent through a composite foreign key `(id, organizationId)`, so the
+// database itself refuses a task that points at another tenant's project, a membership
+// with another tenant's role, etc. Optional references (task assignee, project lead) are
+// validated in the service layer because Prisma cannot express optional composite relations.
+//
+// People inside a tenant are referenced through `Membership`, not `User`. A user is a global
+// identity (one email, one password); a membership is that person *inside one organization*.
+// This keeps history intact when someone is deactivated and makes cross-tenant assignment
+// impossible to express by accident.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────── Enums ───────────────────────────────
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  DEACTIVATED
+}
+
+enum AuthTokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+  INVITATION
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentProvider {
+  MOCK
+  CHAPA
+}
+
+// ───────────────────────── Identity & sessions ─────────────────────────
+
+model User {
+  id                  String     @id @default(uuid()) @db.Uuid
+  email               String     @unique // always stored lower-cased
+  passwordHash        String? // null until an invited user accepts
+  firstName           String
+  lastName            String
+  status              UserStatus @default(ACTIVE)
+  isPlatformAdmin     Boolean    @default(false)
+  emailVerifiedAt     DateTime?
+  failedLoginAttempts Int        @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  memberships Membership[]
+  sessions    Session[]
+  authTokens  AuthToken[]
+
+  @@map("users")
+}
+
+/// One row per login. The refresh token is `<sessionId>.<secret>`; only a hash of the
+/// secret is stored and it rotates on every refresh. The session also pins the active
+/// workspace, so tenant context is always derived server-side.
+model Session {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @db.Uuid
+  membershipId     String?   @db.Uuid
+  refreshTokenHash String
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  userAgent        String?
+  ipAddress        String?
+  lastUsedAt       DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  membership Membership? @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/// Single-use, expiring, hashed tokens for email verification, password reset and invitations.
+model AuthToken {
+  id           String        @id @default(uuid()) @db.Uuid
+  userId       String        @db.Uuid
+  membershipId String?       @db.Uuid // set for INVITATION tokens
+  type         AuthTokenType
+  tokenHash    String        @unique
+  expiresAt    DateTime
+  usedAt       DateTime?
+  createdAt    DateTime      @default(now())
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  membership Membership? @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@map("auth_tokens")
+}
+
+// ───────────────────────────── Tenancy ─────────────────────────────
+
+model Organization {
+  id        String             @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String             @unique
+  status    OrganizationStatus @default(ACTIVE)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  memberships  Membership[]
+  roles        Role[]
+  projects     Project[]
+  tasks        Task[]
+  subscription Subscription?
+  payments     Payment[]
+  activities   ActivityLog[]
+
+  @@map("organizations")
+}
+
+model Membership {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @db.Uuid
+  userId         String           @db.Uuid
+  roleId         String           @db.Uuid
+  status         MembershipStatus @default(ACTIVE)
+  jobTitle       String?
+  joinedAt       DateTime?
+  deactivatedAt  DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Composite FK: a membership can only hold a role of its own organization.
+  role         Role         @relation(fields: [roleId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  sessions           Session[]
+  authTokens         AuthToken[]
+  projectMemberships ProjectMember[]
+  ledProjects        Project[]       @relation("ProjectLead")
+  createdProjects    Project[]       @relation("ProjectCreator")
+  assignedTasks      Task[]          @relation("TaskAssignee")
+  createdTasks       Task[]          @relation("TaskCreator")
+  payments           Payment[]
+  activities         ActivityLog[]
+
+  @@unique([organizationId, userId])
+  @@unique([id, organizationId])
+  @@index([userId])
+  @@index([organizationId, status])
+  @@map("memberships")
+}
+
+// ─────────────────────────── Access control ───────────────────────────
+
+/// Roles are per-organization. System roles (key = OWNER/ADMIN/MANAGER/EMPLOYEE) are created
+/// for every new organization; owners on an eligible plan can add custom roles (key = null).
+model Role {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  key            String? // system role key, null for custom roles
+  name           String
+  description    String?
+  isSystem       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions  RolePermission[]
+  memberships  Membership[]
+
+  @@unique([organizationId, name])
+  @@unique([organizationId, key])
+  @@unique([id, organizationId])
+  @@map("roles")
+}
+
+/// Global permission catalog. Synchronised from code (src/common/constants/permissions.js) on startup.
+model Permission {
+  id          String  @id @default(uuid()) @db.Uuid
+  key         String  @unique
+  group       String
+  description String?
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @db.Uuid
+  permissionId String @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// ─────────────────────────── Work management ───────────────────────────
+
+model Project {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @db.Uuid
+  name           String
+  description    String?
+  status         ProjectStatus @default(PLANNING)
+  priority       Priority      @default(MEDIUM)
+  startDate      DateTime?     @db.Date
+  dueDate        DateTime?     @db.Date
+  leadId         String?       @db.Uuid // responsible person (a membership of the same org)
+  createdById    String?       @db.Uuid
+  archivedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Membership?     @relation("ProjectLead", fields: [leadId], references: [id], onDelete: SetNull)
+  createdBy    Membership?     @relation("ProjectCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  members      ProjectMember[] // the responsible team
+  tasks        Task[]
+
+  @@unique([organizationId, name])
+  @@unique([id, organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, archivedAt])
+  @@map("projects")
+}
+
+model ProjectMember {
+  projectId      String   @db.Uuid
+  membershipId   String   @db.Uuid
+  organizationId String   @db.Uuid
+  createdAt      DateTime @default(now())
+
+  // Both composite FKs share organizationId → project and member must belong to the same tenant.
+  project    Project    @relation(fields: [projectId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  membership Membership @relation(fields: [membershipId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@id([projectId, membershipId])
+  @@index([membershipId])
+  @@map("project_members")
+}
+
+model Task {
+  id             String     @id @default(uuid()) @db.Uuid
+  organizationId String     @db.Uuid
+  projectId      String     @db.Uuid
+  title          String
+  description    String?
+  status         TaskStatus @default(TODO)
+  priority       Priority   @default(MEDIUM)
+  assigneeId     String?    @db.Uuid
+  createdById    String?    @db.Uuid
+  dueDate        DateTime?  @db.Date
+  completedAt    DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  // Composite FK: a task's organization must equal its project's organization.
+  project      Project      @relation(fields: [projectId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  assignee     Membership?  @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy    Membership?  @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([organizationId, dueDate])
+  @@index([projectId, status])
+  @@index([assigneeId, status])
+  @@map("tasks")
+}
+
+// ─────────────────────────── SaaS & billing ───────────────────────────
+
+/// Plans live in the database so the platform owner can change pricing and limits without a deploy.
+/// `null` limits mean unlimited. `features` holds feature-flag keys (see constants/plans.js).
+model SubscriptionPlan {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String
+  description String?
+  priceCents  Int      @default(0) // monthly price in minor units of `currency`
+  currency    String   @default("ETB")
+  maxUsers    Int?
+  maxProjects Int?
+  features    String[] @default([])
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  subscriptions Subscription[]
+  payments      Payment[]
+
+  @@map("subscription_plans")
+}
+
+model Subscription {
+  id                 String             @id @default(uuid()) @db.Uuid
+  organizationId     String             @unique @db.Uuid
+  planId             String             @db.Uuid
+  status             SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart DateTime           @default(now())
+  currentPeriodEnd   DateTime? // null for the free plan (never expires)
+  cancelAtPeriodEnd  Boolean            @default(false)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@map("subscriptions")
+}
+
+model Payment {
+  id                String          @id @default(uuid()) @db.Uuid
+  organizationId    String          @db.Uuid
+  planId            String          @db.Uuid
+  amountCents       Int
+  currency          String
+  status            PaymentStatus   @default(PENDING)
+  provider          PaymentProvider
+  txRef             String          @unique // our idempotency key, sent to the provider
+  providerReference String?
+  checkoutUrl       String?
+  failureReason     String?
+  providerData      Json?
+  initiatedById     String?         @db.Uuid
+  confirmedAt       DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  initiatedBy  Membership?      @relation(fields: [initiatedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([status])
+  @@map("payments")
+}
+
+// ───────────────────────────── Audit ─────────────────────────────
+
+/// Append-only business history. `metadata` stores display values (names, titles) captured at the
+/// time of the event so history stays readable after records are renamed or deleted.
+/// Never put secrets, tokens or passwords in here.
+model ActivityLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  actorId        String?  @db.Uuid
+  action         String
+  entityType     String
+  entityId       String?  @db.Uuid
+  projectId      String?  @db.Uuid // denormalised so a project's timeline is one indexed query
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        Membership?  @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, projectId, createdAt])
+  @@index([organizationId, entityId]) // a task's history in the task drawer
+  @@map("activity_logs")
+}

@@ -1,0 +1,47 @@
+{
+  "name": "teamflow-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TeamFlow API — multi-tenant SaaS project & task management",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "postinstall": "prisma generate",
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "db:reset": "prisma migrate reset --force",
+    "db:studio": "prisma studio",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^10.0.16",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "pino-pretty": "^13.1.2",
+    "prisma": "6.19.3",
+    "supertest": "^7.3.1",
+    "vitest": "^5.0.3"
+  }
+}

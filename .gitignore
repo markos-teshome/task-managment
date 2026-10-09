@@ -58,3 +58,5 @@ temp/
 .DS_Store
 Thumbs.db
 desktop.ini
+backend/.mail-outbox.zip
+backend/.mail-outbox.zip

@@ -40,6 +40,7 @@ export function AuthProvider({ children }) {
   const applySession = useCallback(
     ({ accessToken, me }) => {
       session.setToken(accessToken);
+      session.setWorkspace(me.workspace?.membershipId);
       hint.set(true);
       queryClient.clear(); // never show one workspace's cached data in another
       setState({ status: 'authenticated', me, notice: null });
@@ -60,6 +61,7 @@ export function AuthProvider({ children }) {
 
   const reloadMe = useCallback(async () => {
     const me = await api.get('/auth/me');
+    session.setWorkspace(me.workspace?.membershipId);
     setState((s) => ({ ...s, me }));
     return me;
   }, []);
@@ -97,7 +99,13 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     session.on('sessionExpired', () => endSession('expired'));
     session.on('workspaceBlocked', () => reloadMe().catch(() => {}));
-  }, [endSession, reloadMe]);
+    // Another tab switched the session's workspace: follow it and drop this tab's cached data.
+    session.on('workspaceChanged', () =>
+      reloadMe()
+        .then(() => queryClient.clear())
+        .catch(() => {}),
+    );
+  }, [endSession, reloadMe, queryClient]);
 
   const value = useMemo(() => {
     const permissions = new Set(state.me?.workspace?.permissions ?? []);

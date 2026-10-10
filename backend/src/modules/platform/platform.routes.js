@@ -44,17 +44,22 @@ router.get(
 router.patch(
   '/organizations/:id',
   validate({ params: idParam, body: z.object({ status: z.enum(['ACTIVE', 'SUSPENDED']) }).strict() }),
-  async (req, res) => ok(res, await platform.setOrganizationStatus(req.valid.params.id, req.valid.body.status)),
+  async (req, res) => ok(res, await platform.setOrganizationStatus(req.ctx.userId, req.valid.params.id, req.valid.body.status)),
 );
 
 router.get('/plans', async (_req, res) => ok(res, await platform.listAllPlans()));
-router.post('/plans', validate({ body: createPlanBody }), async (req, res) => created(res, await platform.createPlan(req.valid.body)));
+router.post('/plans', validate({ body: createPlanBody }), async (req, res) => created(res, await platform.createPlan(req.ctx.userId, req.valid.body)));
 router.patch('/plans/:id', validate({ params: idParam, body: updatePlanBody }), async (req, res) => {
-  ok(res, await platform.updatePlan(req.valid.params.id, req.valid.body));
+  ok(res, await platform.updatePlan(req.ctx.userId, req.valid.params.id, req.valid.body));
 });
 
 router.get('/payments', validate({ query: z.object(pagination) }), async (req, res) => {
   const { items, meta } = await platform.recentPayments(req.valid.query);
+  ok(res, items, meta);
+});
+
+router.get('/audit-log', validate({ query: z.object(pagination) }), async (req, res) => {
+  const { items, meta } = await platform.listAuditLog(req.valid.query);
   ok(res, items, meta);
 });
 

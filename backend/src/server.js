@@ -13,7 +13,11 @@ async function main() {
     logger.info(`TeamFlow API listening on ${config.API_URL} (Chapa ${config.chapaTestMode ? 'TEST' : 'LIVE'} mode)`);
     logger.info(`Chapa webhook URL: ${config.API_URL}/api/v1/payments/webhooks/chapa`);
     if (!config.CHAPA_WEBHOOK_SECRET) logger.warn('CHAPA_WEBHOOK_SECRET is empty: Chapa webhooks will be rejected (401).');
-    if (/localhost|127\.0\.0\.1/.test(config.API_URL)) logger.warn('API_URL is local: Chapa cannot reach the webhook/callback. Use a public URL (e.g. a tunnel).');
+    logger.info(`Email links point to ${config.APP_URL}`);
+    if (config.appUrlIsLocal) {
+      logger.warn('APP_URL is local: invitation, verification and password-reset links only open on this computer. To test from another device, expose the frontend publicly and set APP_URL (README → "Testing from another device").');
+    }
+    if (config.apiUrlIsLocal) logger.warn('API_URL is local: Chapa cannot reach the webhook/callback. Use a public URL (e.g. a tunnel).');
     verifyMailer();
   });
 

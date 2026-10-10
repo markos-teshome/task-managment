@@ -13,7 +13,10 @@
 // impossible to express by accident.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // Loads nested relations with one SQL query instead of one query per level. Matters on a remote
+  // database, where every round-trip costs ~300 ms (the session context alone has four levels).
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {
@@ -73,11 +76,14 @@ enum SubscriptionStatus {
   EXPIRED
 }
 
+/// PENDING → SUCCEEDED | FAILED | CANCELLED | EXPIRED. SUCCEEDED and FAILED are final.
+/// CANCELLED/EXPIRED → SUCCEEDED only when the provider later verifies that the money was taken.
 enum PaymentStatus {
   PENDING
   SUCCEEDED
   FAILED
   CANCELLED
+  EXPIRED
 }
 
 enum PaymentProvider {
@@ -102,9 +108,10 @@ model User {
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
 
-  memberships Membership[]
-  sessions    Session[]
-  authTokens  AuthToken[]
+  memberships       Membership[]
+  sessions          Session[]
+  authTokens        AuthToken[]
+  platformAuditLogs PlatformAuditLog[]
 
   @@map("users")
 }
@@ -177,6 +184,7 @@ model Membership {
   roleId         String           @db.Uuid
   status         MembershipStatus @default(ACTIVE)
   jobTitle       String?
+  invitedById    String?          @db.Uuid // who sent the (latest) invitation
   joinedAt       DateTime?
   deactivatedAt  DateTime?
   createdAt      DateTime         @default(now())
@@ -186,6 +194,8 @@ model Membership {
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Composite FK: a membership can only hold a role of its own organization.
   role         Role         @relation(fields: [roleId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  invitedBy    Membership?  @relation("MembershipInviter", fields: [invitedById], references: [id], onDelete: SetNull)
+  invited      Membership[] @relation("MembershipInviter")
 
   sessions           Session[]
   authTokens         AuthToken[]
@@ -416,4 +426,21 @@ model ActivityLog {
   @@index([organizationId, projectId, createdAt])
   @@index([organizationId, entityId]) // a task's history in the task drawer
   @@map("activity_logs")
+}
+
+/// Actions taken by platform administrators (TeamFlow operators), who act outside any tenant.
+/// Append-only. Never put secrets, tokens or passwords in `metadata`.
+model PlatformAuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @db.Uuid
+  action     String
+  targetType String
+  targetId   String?  @db.Uuid
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@map("platform_audit_logs")
 }

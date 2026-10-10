@@ -3,6 +3,7 @@ import { config } from '../../config/env.js';
 import { Errors } from '../../common/errors/AppError.js';
 import { burnPasswordCheck, hashPassword, safeEqual, sha256, verifyPassword } from '../../common/utils/crypto.js';
 import { fullName } from '../../common/utils/http.js';
+import { password as passwordRule } from '../../common/validators/index.js';
 import { newRefreshSecret, parseRefreshToken, signAccessToken } from './tokens.js';
 import { loadSessionContext } from './context.js';
 import { consumeToken, findValidToken, issueAuthToken } from './authToken.service.js';
@@ -95,6 +96,21 @@ async function sessionResponse(sessionId) {
   return { accessToken: signAccessToken({ userId: ctx.userId, sessionId }), me: await buildMe(ctx) };
 }
 
+/** Counts a wrong password; enough of them lock the account for a while. */
+async function recordFailedPassword(user) {
+  const attempts = user.failedLoginAttempts + 1;
+  await prisma.user.update({
+    where: { id: user.id },
+    data:
+      attempts >= MAX_FAILED_LOGINS
+        ? { failedLoginAttempts: 0, lockedUntil: new Date(Date.now() + LOCK_MINUTES * 60_000) }
+        : { failedLoginAttempts: attempts },
+  });
+}
+
+const accountLocked = () =>
+  Errors.tooMany(`Too many failed sign-in attempts. Try again in ${LOCK_MINUTES} minutes or reset your password.`, 'ACCOUNT_LOCKED');
+
 export async function login({ email, password }, meta) {
   const user = await prisma.user.findUnique({ where: { email } });
   const invalid = Errors.unauthenticated('Incorrect email or password.', 'INVALID_CREDENTIALS');
@@ -103,19 +119,10 @@ export async function login({ email, password }, meta) {
     await burnPasswordCheck(password); // equalise timing with the real check
     throw invalid;
   }
-  if (user.lockedUntil && user.lockedUntil > new Date()) {
-    throw Errors.tooMany(`Too many failed sign-in attempts. Try again in ${LOCK_MINUTES} minutes or reset your password.`, 'ACCOUNT_LOCKED');
-  }
+  if (user.lockedUntil && user.lockedUntil > new Date()) throw accountLocked();
 
   if (!(await verifyPassword(password, user.passwordHash))) {
-    const attempts = user.failedLoginAttempts + 1;
-    await prisma.user.update({
-      where: { id: user.id },
-      data:
-        attempts >= MAX_FAILED_LOGINS
-          ? { failedLoginAttempts: 0, lockedUntil: new Date(Date.now() + LOCK_MINUTES * 60_000) }
-          : { failedLoginAttempts: attempts },
-    });
+    await recordFailedPassword(user);
     throw invalid;
   }
 
@@ -257,45 +264,82 @@ export async function changePassword(ctx, { currentPassword, newPassword }) {
 
 // ─────────────────────────────── Invitations ───────────────────────────────
 
+const invitationNoLongerValid = () =>
+  Errors.badRequest('This invitation is no longer valid. Ask your administrator to send a new one.', 'INVALID_TOKEN');
+
+/** What the accept page shows. Only the holder of the emailed token can read it. */
 export async function getInvitation(rawToken) {
   const token = await findValidToken(rawToken, 'INVITATION');
-  if (token.membership?.status !== 'INVITED') throw Errors.badRequest('This invitation is no longer valid.', 'INVALID_TOKEN');
+  if (token.membership?.status !== 'INVITED') throw invitationNoLongerValid();
   return {
     email: token.user.email,
     firstName: token.user.firstName,
     lastName: token.user.lastName,
     organizationName: token.membership.organization.name,
     roleName: token.membership.role.name,
-    requiresPassword: !token.user.passwordHash,
+    inviterName: token.membership.invitedBy ? fullName(token.membership.invitedBy.user) : null,
+    expiresAt: token.expiresAt,
+    requiresPassword: !token.user.passwordHash, // true → a new account is created on acceptance
   };
 }
 
 /**
- * Accepting proves the invitee controls the email, so it also verifies the account.
- * New users set their password here; existing users just join the workspace.
+ * Joins the invited person to the organization named in the invitation (never one chosen by the client).
+ *  - New person: sets their name and password here. Following the emailed link proves they own the
+ *    address, so the account is verified too.
+ *  - Existing account: must prove it is theirs — either already signed in as that account, or by
+ *    entering its current password. A link alone is not enough to attach an existing account.
+ *  - Signed in as a different account: refused, so nobody can claim another person's invitation.
+ * Token consumption and membership activation happen in one transaction and are both conditional,
+ * so concurrent acceptances produce exactly one membership.
  */
-export async function acceptInvitation({ token: rawToken, password, firstName, lastName }) {
+export async function acceptInvitation({ token: rawToken, password, firstName, lastName }, ctx = null) {
   const token = await findValidToken(rawToken, 'INVITATION');
   const { user, membership } = token;
-  if (membership?.status !== 'INVITED') throw Errors.badRequest('This invitation is no longer valid.', 'INVALID_TOKEN');
+  if (membership?.status !== 'INVITED') throw invitationNoLongerValid();
+  if (ctx && ctx.userId !== user.id) {
+    throw Errors.forbidden(
+      `This invitation was sent to ${user.email}. Sign out, then open the link again and sign in with that address.`,
+      'INVITATION_WRONG_ACCOUNT',
+    );
+  }
   if (membership.organization.status !== 'ACTIVE') throw Errors.forbidden('This organization is suspended.', 'ORGANIZATION_SUSPENDED');
-  if (!user.passwordHash && !password) {
-    throw Errors.validation([{ field: 'password', message: 'Choose a password to create your account' }]);
+  if (user.status !== 'ACTIVE') throw Errors.forbidden('This account has been disabled.', 'ACCOUNT_DISABLED');
+
+  const isNewAccount = !user.passwordHash;
+  if (isNewAccount) {
+    const check = passwordRule.safeParse(password);
+    if (!check.success) {
+      throw Errors.validation([{ field: 'password', message: password ? check.error.issues[0].message : 'Choose a password to create your account' }]);
+    }
+  } else if (!ctx) {
+    if (!password) throw Errors.validation([{ field: 'password', message: 'Enter your TeamFlow password to accept' }]);
+    if (user.lockedUntil && user.lockedUntil > new Date()) throw accountLocked();
+    if (!(await verifyPassword(password, user.passwordHash))) {
+      await recordFailedPassword(user);
+      throw Errors.validation([{ field: 'password', message: 'Incorrect password' }]);
+    }
   }
 
-  const passwordHash = !user.passwordHash ? await hashPassword(password) : undefined;
+  const passwordHash = isNewAccount ? await hashPassword(password) : undefined;
   await prisma.$transaction(async (tx) => {
     await consumeToken(tx, token.id, 'INVITATION');
+    const { count } = await tx.membership.updateMany({
+      where: { id: membership.id, status: 'INVITED' },
+      data: { status: 'ACTIVE', joinedAt: new Date() },
+    });
+    if (count !== 1) throw invitationNoLongerValid(); // revoked or accepted concurrently
     await tx.user.update({
       where: { id: user.id },
       data: {
         emailVerifiedAt: user.emailVerifiedAt ?? new Date(),
-        ...(passwordHash && { passwordHash }),
-        ...(!user.passwordHash && firstName && { firstName }),
-        ...(!user.passwordHash && lastName && { lastName }),
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+        ...(isNewAccount && { passwordHash, ...(firstName && { firstName }), ...(lastName && { lastName }) }),
       },
     });
-    await tx.membership.update({ where: { id: membership.id }, data: { status: 'ACTIVE', joinedAt: new Date() } });
+    // A signed-in invitee lands in the workspace they just joined.
+    if (ctx) await tx.session.update({ where: { id: ctx.sessionId }, data: { membershipId: membership.id } });
     await logActivity(tx, {
       organizationId: membership.organizationId,
       actorId: membership.id,

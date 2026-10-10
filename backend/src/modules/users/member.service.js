@@ -153,7 +153,7 @@ export async function inviteMember(ctx, { email, firstName, lastName, roleId, jo
 
     const invitee = existingUser ?? (await tx.user.create({ data: { email, firstName, lastName } }));
     const membership = await tx.membership.create({
-      data: { organizationId: ctx.organizationId, userId: invitee.id, roleId: role.id, status: 'INVITED', jobTitle },
+      data: { organizationId: ctx.organizationId, userId: invitee.id, roleId: role.id, status: 'INVITED', jobTitle, invitedById: ctx.membershipId },
       include: memberInclude,
     });
     const rawToken = await issueAuthToken(tx, { userId: invitee.id, type: 'INVITATION', membershipId: membership.id });
@@ -179,7 +179,11 @@ export async function inviteMember(ctx, { email, firstName, lastName, roleId, jo
 export async function resendInvitation(ctx, id) {
   const member = await findMember(ctx, id);
   if (member.status !== 'INVITED') throw Errors.conflict('This member has already joined.', 'NOT_INVITED');
-  const token = await issueAuthToken(prisma, { userId: member.user.id, type: 'INVITATION', membershipId: member.id });
+  // The new link replaces the old one (issueAuthToken removes unused tokens), and the expiry restarts.
+  const token = await prisma.$transaction(async (tx) => {
+    await tx.membership.update({ where: { id: member.id }, data: { invitedById: ctx.membershipId } });
+    return issueAuthToken(tx, { userId: member.user.id, type: 'INVITATION', membershipId: member.id });
+  });
   const sent = await sendInvitationEmail(
     { user: member.user, organizationName: ctx.organization.name, inviterName: fullName(ctx.user), roleName: member.role.name },
     token,

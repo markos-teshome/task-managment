@@ -17,6 +17,7 @@
     "db:seed": "prisma db seed",
     "db:reset": "prisma migrate reset --force",
     "db:studio": "prisma studio",
+    "platform-admin": "node scripts/platform-admin.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },

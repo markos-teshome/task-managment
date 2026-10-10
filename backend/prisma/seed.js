@@ -14,8 +14,9 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { ensureReferenceData } from '../src/bootstrap.js';
 import { createSystemRoles } from '../src/modules/roles/role.service.js';
+import { TRANSACTION_OPTIONS } from '../src/lib/prisma.js';
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ transactionOptions: TRANSACTION_OPTIONS });
 const DEMO_PASSWORD = 'Demo@1234';
 const DAY = 86_400_000;
 

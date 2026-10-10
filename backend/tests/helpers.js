@@ -15,7 +15,7 @@ export { prisma, testOutbox, chapaFake };
 /** Empties all tenant data, keeping the permission catalog and plans. */
 export async function resetDb() {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "activity_logs","payments","subscriptions","tasks","project_members","projects","auth_tokens","sessions","memberships","role_permissions","roles","organizations","users" CASCADE',
+    'TRUNCATE TABLE "platform_audit_logs","activity_logs","payments","subscriptions","tasks","project_members","projects","auth_tokens","sessions","memberships","role_permissions","roles","organizations","users" CASCADE',
   );
   await ensureReferenceData();
   for (const { code, ...plan } of DEFAULT_PLANS) await prisma.subscriptionPlan.update({ where: { code }, data: { ...plan, isActive: true } });

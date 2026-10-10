@@ -38,6 +38,12 @@ export async function authenticate(req, _res, next) {
   next();
 }
 
+/** For public endpoints that behave differently for a signed-in caller: authenticates only if a token is sent. */
+export function optionalAuthenticate(req, res, next) {
+  if (!req.headers.authorization) return next();
+  return authenticate(req, res, next);
+}
+
 const TENANT_MESSAGES = {
   NO_WORKSPACE: 'Create or join an organization to continue.',
   MEMBERSHIP_INACTIVE: 'Your access to this organization has been removed. Contact your administrator.',
@@ -52,6 +58,13 @@ const TENANT_MESSAGES = {
 export function requireTenant(req, _res, next) {
   const reason = req.ctx?.tenantBlockedReason;
   if (reason) return next(Errors.forbidden(TENANT_MESSAGES[reason], reason));
+  // The active workspace belongs to the session, so switching in one tab switches every tab. A client that
+  // says which workspace it is displaying (X-Workspace-Id = membership id) gets 409 instead of another
+  // workspace's data, and reloads.
+  const expected = req.get('x-workspace-id');
+  if (expected && expected !== req.ctx.membershipId) {
+    return next(Errors.conflict('You switched to another organization in a different tab. Reloading…', 'WORKSPACE_CHANGED'));
+  }
   next();
 }
 

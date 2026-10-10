@@ -19,6 +19,19 @@ export const password = z
 
 export const personName = z.string().trim().min(1, 'Required').max(60);
 
+/** Spaces collapsed; must contain a letter or digit; no control characters. */
+export const organizationName = z
+  .string()
+  .transform((v) => v.trim().replace(/\s+/g, ' '))
+  .pipe(
+    z
+      .string()
+      .min(2, 'Organization name is too short')
+      .max(80, 'Organization name is too long')
+      .refine((v) => /[\p{L}\p{N}]/u.test(v), 'Organization name must contain letters or numbers')
+      .refine((v) => !/[\p{Cc}<>]/u.test(v), 'Organization name contains characters that are not allowed'),
+  );
+
 export const optionalText = (max) =>
   z
     .string()

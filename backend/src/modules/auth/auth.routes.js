@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { authenticate } from '../../common/middleware/auth.js';
+import { authenticate, optionalAuthenticate } from '../../common/middleware/auth.js';
 import { validate } from '../../common/middleware/validate.js';
 import { emailActionLimiter, loginLimiter, registerLimiter, tokenLimiter } from '../../common/middleware/rateLimit.js';
 import { email, id, password, personName } from '../../common/validators/index.js';
@@ -18,8 +18,14 @@ const schemas = {
   emailOnly: z.object({ email }).strict(),
   token: z.object({ token }).strict(),
   reset: z.object({ token, password }).strict(),
+  // `password` is the new password for a new account, or the current one for an existing account.
   accept: z
-    .object({ token, password: password.optional(), firstName: personName.optional(), lastName: personName.optional() })
+    .object({
+      token,
+      password: z.string().min(1).max(200).optional(),
+      firstName: personName.optional(),
+      lastName: personName.optional(),
+    })
     .strict(),
   profile: z.object({ firstName: personName, lastName: personName }).strict(),
   changePassword: z.object({ currentPassword: z.string().min(1).max(200), newPassword: password }).strict(),
@@ -93,8 +99,9 @@ router.get('/invitations/:token', tokenLimiter, validate({ params: z.object({ to
   ok(res, await auth.getInvitation(req.valid.params.token));
 });
 
-router.post('/accept-invitation', tokenLimiter, validate({ body: schemas.accept }), async (req, res) => {
-  ok(res, await auth.acceptInvitation(req.valid.body));
+// Signed-in callers may only accept invitations addressed to their own account.
+router.post('/accept-invitation', tokenLimiter, optionalAuthenticate, validate({ body: schemas.accept }), async (req, res) => {
+  ok(res, await auth.acceptInvitation(req.valid.body, req.ctx));
 });
 
 // ── Authenticated ──

@@ -21,6 +21,15 @@ export async function createOrganization(userId, { name }) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user?.emailVerifiedAt) throw Errors.forbidden('Verify your email before creating an organization.', 'EMAIL_NOT_VERIFIED');
 
+  // Names are not globally unique (two companies may share one, and saying "taken" would reveal that
+  // another tenant exists), but one person's own workspaces must be distinguishable in their switcher.
+  const sameName = await prisma.membership.findFirst({
+    where: { userId, status: 'ACTIVE', organization: { name: { equals: name, mode: 'insensitive' } } },
+  });
+  if (sameName) {
+    throw Errors.conflict('You already belong to an organization with this name. Choose a different name.', 'ORGANIZATION_NAME_IN_USE');
+  }
+
   const freePlan = await prisma.subscriptionPlan.findUnique({ where: { code: FREE_PLAN_CODE } });
   if (!freePlan) throw new Error('Free plan missing — reference data not initialised');
 

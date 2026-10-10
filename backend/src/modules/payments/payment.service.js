@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { config } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
-import { Errors } from '../../common/errors/AppError.js';
+import { AppError, Errors } from '../../common/errors/AppError.js';
 import { randomToken } from '../../common/utils/crypto.js';
 import { fullName, paginate } from '../../common/utils/http.js';
 import { assertPlanFitsUsage, activatePaidPlan } from '../subscriptions/subscription.service.js';
@@ -11,15 +11,33 @@ import { chapaProvider } from './providers/chapa.provider.js';
 /**
  * Payment flow:  choose plan → checkout (PENDING) → provider → verify → SUCCEEDED → plan activated.
  *
+ * States: PENDING → SUCCEEDED | FAILED | CANCELLED | EXPIRED. SUCCEEDED and FAILED are final.
+ * A CANCELLED (superseded / abandoned) or EXPIRED checkout can still become SUCCEEDED, but only when
+ * the provider verifies that the customer did pay — money that was taken is never ignored.
+ *
  * Trust: a payment only succeeds through `processPayment`, which asks the provider for the
  * transaction's real status (server-to-server) and checks amount and currency.
- * Idempotency: the PENDING → SUCCEEDED transition is a conditional update inside the same
- * transaction that activates the plan. A duplicate callback, a double-clicked "verify" or a
- * webhook racing the return redirect finds the row no longer PENDING and does nothing.
+ * Idempotency: every transition is a conditional update (`WHERE status = <the status we read>`) inside
+ * the same transaction that activates the plan. A duplicate webhook, a double-clicked "verify" or a
+ * webhook racing the return redirect finds the row already changed and does nothing.
  */
 // Chapa is the payment provider. Rows from other providers (historical records) are read-only.
 const PROVIDERS = { CHAPA: chapaProvider };
 const providerFor = (payment) => PROVIDERS[payment.provider];
+
+// A checkout not completed within this time is EXPIRED. Chapa may still report a late success.
+export const CHECKOUT_TTL_MS = 60 * 60_000;
+const SETTLEABLE = ['PENDING', 'CANCELLED', 'EXPIRED'];
+const isStale = (payment) => Date.now() - payment.createdAt.getTime() > CHECKOUT_TTL_MS;
+const EXPIRED_REASON = 'The checkout was not completed in time.';
+
+/** Marks an organization's abandoned checkouts EXPIRED, so no payment stays "pending" forever. */
+async function expireStaleCheckouts(organizationId) {
+  await prisma.payment.updateMany({
+    where: { organizationId, status: 'PENDING', createdAt: { lt: new Date(Date.now() - CHECKOUT_TTL_MS) } },
+    data: { status: 'EXPIRED', failureReason: EXPIRED_REASON },
+  });
+}
 
 export const formatMoney = (cents, currency) =>
   `${currency} ${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -43,6 +61,7 @@ const include = { plan: true, initiatedBy: { include: { user: { select: { firstN
 
 export async function listPayments(ctx, query) {
   const { skip, take, meta } = paginate(query);
+  await expireStaleCheckouts(ctx.organizationId);
   const where = { organizationId: ctx.organizationId, ...(query.status && { status: query.status }) };
   const [items, total] = await prisma.$transaction([
     prisma.payment.findMany({ where, include, orderBy: { createdAt: 'desc' }, skip, take }),
@@ -52,6 +71,7 @@ export async function listPayments(ctx, query) {
 }
 
 async function findPayment(ctx, txRef) {
+  await expireStaleCheckouts(ctx.organizationId);
   const payment = await prisma.payment.findFirst({ where: { txRef, organizationId: ctx.organizationId }, include });
   if (!payment) throw Errors.notFound('Payment');
   return payment;
@@ -119,27 +139,43 @@ export async function startCheckout(ctx, { planId }) {
 /**
  * The single, idempotent path that settles a payment. Safe to call any number of times,
  * from any trigger (return redirect, webhook, manual "check status").
+ * Throws 503 PAYMENT_VERIFICATION_UNAVAILABLE when the provider cannot be reached: nothing changes and
+ * the caller can retry (a webhook answers 5xx, so the provider retries it too).
  */
 export async function processPayment(txRef) {
   const payment = await prisma.payment.findUnique({ where: { txRef }, include });
-  if (!payment || payment.status !== 'PENDING' || !providerFor(payment)) return payment;
+  if (!payment || !SETTLEABLE.includes(payment.status) || !providerFor(payment)) return payment;
 
-  const result = await providerFor(payment).verify(payment);
-  if (result.status === 'PENDING') return payment;
+  let result;
+  try {
+    result = await providerFor(payment).verify(payment);
+  } catch (err) {
+    logger.warn({ err: err.message, txRef }, 'Payment verification failed: provider unreachable');
+    throw new AppError(
+      503,
+      'PAYMENT_VERIFICATION_UNAVAILABLE',
+      "We couldn't reach the payment provider to confirm this payment. Nothing has changed — please check again in a moment.",
+    );
+  }
 
   if (result.status === 'SUCCEEDED' && (result.amountCents !== payment.amountCents || result.currency !== payment.currency)) {
     logger.warn({ txRef }, 'Payment amount/currency mismatch — refusing to activate');
-    result.status = 'FAILED';
-    result.failureReason = 'The paid amount does not match the plan price.';
+    result = { status: 'FAILED', failureReason: 'The paid amount does not match the plan price.' };
+  } else if (payment.status !== 'PENDING') {
+    // A closed checkout only changes when the provider confirms the customer paid after all.
+    if (result.status !== 'SUCCEEDED') return payment;
+  } else if (result.status === 'PENDING') {
+    if (!isStale(payment)) return payment;
+    result = { status: 'EXPIRED', failureReason: EXPIRED_REASON };
   }
 
   await prisma.$transaction(async (tx) => {
     const succeeded = result.status === 'SUCCEEDED';
     const { count } = await tx.payment.updateMany({
-      where: { id: payment.id, status: 'PENDING' },
+      where: { id: payment.id, status: payment.status },
       data: succeeded
-        ? { status: 'SUCCEEDED', confirmedAt: new Date(), providerReference: result.providerReference ?? payment.providerReference }
-        : { status: 'FAILED', failureReason: result.failureReason ?? 'Payment failed.' },
+        ? { status: 'SUCCEEDED', confirmedAt: new Date(), failureReason: null, providerReference: result.providerReference ?? payment.providerReference }
+        : { status: result.status, failureReason: result.failureReason ?? 'Payment failed.' },
     });
     if (count !== 1) return; // already settled by a concurrent call — no side effects
 
@@ -148,7 +184,7 @@ export async function processPayment(txRef) {
     if (succeeded) {
       await logActivity(tx, { ...base, action: ACTIONS.PAYMENT_COMPLETED, metadata: { plan: payment.plan.name, amount } });
       await activatePaidPlan(tx, { organizationId: payment.organizationId, plan: payment.plan, actorId: payment.initiatedById });
-    } else {
+    } else if (result.status === 'FAILED') {
       await logActivity(tx, { ...base, action: ACTIONS.PAYMENT_FAILED, metadata: { plan: payment.plan.name, amount } });
     }
   });

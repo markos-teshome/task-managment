@@ -92,8 +92,19 @@ export function PaymentReturnPage() {
         <ButtonLink to="/billing#plans" variant="primary">Try again</ButtonLink>
       </Result>
     );
+  } else if (p.status === 'EXPIRED') {
+    view = (
+      <Result icon={Clock} tone="neutral" title="Checkout expired" body="This checkout was not completed in time and your plan has not changed. If you did pay, it is confirmed automatically as soon as the provider reports it.">
+        <Button onClick={retry}>Check again</Button>
+        <ButtonLink to="/billing#plans" variant="primary">Start a new checkout</ButtonLink>
+      </Result>
+    );
   } else {
-    view = <Result icon={XCircle} tone="neutral" title="Payment cancelled" body="No payment was taken and your plan has not changed." />;
+    view = (
+      <Result icon={XCircle} tone="neutral" title="Payment cancelled" body={`${p.failureReason ?? 'The checkout was cancelled.'} No payment was taken and your plan has not changed.`}>
+        <ButtonLink to="/billing#plans" variant="primary">Choose a plan</ButtonLink>
+      </Result>
+    );
   }
 
   return (

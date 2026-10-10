@@ -9,14 +9,20 @@
 const BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
 
 let accessToken = null;
-const listeners = { sessionExpired: () => {}, workspaceBlocked: () => {} };
+let workspaceId = null; // membership id of the workspace this tab is showing
+const listeners = { sessionExpired: () => {}, workspaceBlocked: () => {}, workspaceChanged: () => {} };
 
 export const session = {
   setToken: (t) => {
     accessToken = t;
   },
+  /** Sent as X-Workspace-Id: the API answers 409 instead of serving another workspace's data. */
+  setWorkspace: (id) => {
+    workspaceId = id ?? null;
+  },
   clear: () => {
     accessToken = null;
+    workspaceId = null;
   },
   on: (event, fn) => {
     listeners[event] = fn;
@@ -77,6 +83,7 @@ async function send(path, { method = 'GET', body, query, signal, retry = true, w
   const headers = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
 
   let res;
   try {
@@ -120,6 +127,7 @@ async function send(path, { method = 'GET', body, query, signal, retry = true, w
       details: error.details,
     });
     if (res.status === 403 && BLOCKING_CODES.includes(apiError.code)) listeners.workspaceBlocked(apiError);
+    if (apiError.code === 'WORKSPACE_CHANGED') listeners.workspaceChanged(apiError);
     throw apiError;
   }
   return withMeta ? { items: payload.data, meta: payload.meta } : payload.data;

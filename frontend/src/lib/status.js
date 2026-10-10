@@ -41,6 +41,7 @@ export const PAYMENT_STATUS = {
   SUCCEEDED: { label: 'Paid', tone: 'success', icon: CheckCircle2 },
   FAILED: { label: 'Failed', tone: 'danger', icon: XCircle },
   CANCELLED: { label: 'Cancelled', tone: 'neutral', icon: Ban },
+  EXPIRED: { label: 'Expired', tone: 'neutral', icon: Clock },
 };
 
 export const SUBSCRIPTION_STATUS = {

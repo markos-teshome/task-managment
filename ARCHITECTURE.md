@@ -155,7 +155,15 @@ choose plan ─► POST /payments/checkout ─► Payment(PENDING, txRef) ─►
 - **Trust:** a payment succeeds only through `processPayment`, which asks the provider for the real status and checks
   amount and currency against what we charged. The client never reports success; the price is taken from the plan on
   the server.
-- **Idempotency:** the `PENDING → SUCCEEDED` transition is an `updateMany … where status = PENDING` inside the same
+- **States:** `PENDING → SUCCEEDED | FAILED | CANCELLED | EXPIRED`. `SUCCEEDED` and `FAILED` are final. A checkout not
+  completed within 60 minutes becomes `EXPIRED` (lazily, when the organization's payments are read or verified), so
+  nothing stays "processing" forever. `CANCELLED` (by the customer, by Chapa, or superseded by a newer checkout) and
+  `EXPIRED` can still become `SUCCEEDED` — only when Chapa verifies the customer did pay, because money that was taken
+  must never be ignored. There is no separate PROCESSING state: confirmation is one atomic step.
+- **Provider outages:** if Chapa cannot be reached (network error, timeout, 5xx), verification answers
+  `503 PAYMENT_VERIFICATION_UNAVAILABLE` and changes nothing; the return page offers "Check again" and a webhook gets a
+  5xx, so Chapa retries it. An outage is never read as "unpaid".
+- **Idempotency:** every transition is an `updateMany … where status = <status that was read>` inside the same
   transaction as the plan activation. Duplicate webhooks, double clicks and races find nothing to update and cause no
   side effects (tested with concurrent calls). `txRef` is unique.
 - **Chapa:** initialise/verify per Chapa's API. The dashboard webhook (POST) is authenticated by HMAC-SHA256
@@ -179,6 +187,25 @@ A user with `isPlatformAdmin` has no membership and therefore **cannot call tena
 covers tenant administration only — organizations (suspend/reactivate), plans (pricing/limits/features) and revenue.
 It deliberately does not let the operator browse customers' projects or tasks. Suspending an organization blocks its
 members on their next request.
+
+Provisioning is **command-line only** (`npm run platform-admin -- grant|revoke <email>`): registration and the API can
+never set `isPlatformAdmin`, and the flag is re-read on every request, so a revocation applies immediately. Every
+console change (suspend/reactivate, plan create/update with old and new values) and every grant/revocation is written to
+`platform_audit_logs` (actor, action, target, metadata), readable at `GET /platform/audit-log`.
+
+## 9a. Invitations and workspaces
+
+- The invitation (a hashed, 7-day, single-use token tied to one user and one membership) decides the organization and
+  role; the client cannot choose either. Withdrawing an invitation deletes the membership and its token.
+- **New person:** sets name and password on the accept page; following the emailed link proves the address, so the
+  account is verified. **Existing account:** must enter its password, or already be signed in as that account.
+  **Signed in as someone else:** refused (`INVITATION_WRONG_ACCOUNT`).
+- Expired and already-accepted links get their own messages (only the token holder sees them); withdrawn, replaced
+  and unknown links get one generic answer. Token consumption and the `INVITED → ACTIVE` change are both conditional
+  updates in one transaction, so concurrent acceptances produce one membership.
+- The active workspace belongs to the session. The SPA sends the membership it is showing as `X-Workspace-Id`; if
+  another tab switched the session, tenant routes answer `409 WORKSPACE_CHANGED` instead of returning the other
+  organization's data, and the SPA reloads.
 
 ## 10. Errors & validation
 

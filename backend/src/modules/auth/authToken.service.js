@@ -25,16 +25,33 @@ export async function issueAuthToken(db, { userId, type, membershipId = null }) 
 const INVALID = {
   EMAIL_VERIFICATION: 'This verification link is invalid or has expired. Request a new one.',
   PASSWORD_RESET: 'This password reset link is invalid or has expired. Request a new one.',
-  INVITATION: 'This invitation is invalid or has expired. Ask your administrator to resend it.',
+  INVITATION:
+    'This invitation link is not valid. It may have been withdrawn or replaced by a newer invitation. Ask your administrator to send a new one.',
+};
+
+/**
+ * Invitation links get specific answers for "expired" and "already accepted": only the holder of the
+ * 256-bit token sees them, so they reveal nothing to anyone guessing. Withdrawn invitations (their
+ * token is deleted with them), replaced and unknown links all get the same generic INVALID_TOKEN.
+ */
+const INVITATION_STATE = {
+  used: ['INVITATION_ALREADY_ACCEPTED', 'This invitation has already been accepted. Sign in to continue.'],
+  expired: ['INVITATION_EXPIRED', 'This invitation has expired. Ask your administrator to send a new one.'],
 };
 
 /** Finds a valid (unused, unexpired) token without consuming it. */
 export async function findValidToken(raw, type, db = prisma) {
   const token = await db.authToken.findUnique({
     where: { tokenHash: sha256(raw) },
-    include: { user: true, membership: { include: { organization: true, role: true } } },
+    include: {
+      user: true,
+      membership: { include: { organization: true, role: true, invitedBy: { include: { user: true } } } },
+    },
   });
-  if (!token || token.type !== type || token.usedAt || token.expiresAt < new Date()) {
+  if (!token || token.type !== type) throw Errors.badRequest(INVALID[type], 'INVALID_TOKEN');
+  const state = token.usedAt ? 'used' : token.expiresAt < new Date() ? 'expired' : null;
+  if (state) {
+    if (type === 'INVITATION') throw Errors.badRequest(INVITATION_STATE[state][1], INVITATION_STATE[state][0]);
     throw Errors.badRequest(INVALID[type], 'INVALID_TOKEN');
   }
   return token;

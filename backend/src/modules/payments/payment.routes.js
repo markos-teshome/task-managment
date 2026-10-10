@@ -9,7 +9,7 @@ import * as payments from './payment.service.js';
 const router = Router();
 
 const txParams = z.object({ txRef: z.string().regex(/^tf_[A-Za-z0-9_-]{6,60}$/) });
-const listQuery = z.object({ ...pagination, status: z.enum(['PENDING', 'SUCCEEDED', 'FAILED', 'CANCELLED']).optional() });
+const listQuery = z.object({ ...pagination, status: z.enum(['PENDING', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED']).optional() });
 
 // Provider → server. Unauthenticated by design; protected by signature + server-side verification.
 // POST = dashboard webhook (signed). GET = checkout callback_url (unsigned; only triggers verification).

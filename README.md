@@ -88,7 +88,9 @@ by the seed; the seed creates **no payment records** — payments only come from
 | `DATABASE_URL` | Application database |
 | `TEST_DATABASE_URL` | Separate database used by `npm test` (its data is deleted) |
 | `JWT_ACCESS_SECRET` | ≥ 32 random characters |
-| `APP_URL` / `API_URL` / `CORS_ORIGINS` | Frontend and API origins (email links, payment redirects, CORS) |
+| `APP_URL` | **Frontend** URL people open. Every email link (invitation, verification, password reset) and the payment return page use it, so it must be reachable from the recipient's device — `localhost` only works on this computer (refused in production) |
+| `API_URL` | **API** URL as reachable by Chapa (webhook + callback). May equal `APP_URL` when the frontend proxies `/api` |
+| `CORS_ORIGINS` | Allowed browser origins when the frontend is served from a different origin than the API |
 | `COOKIE_SECURE` | `true` behind HTTPS |
 | `CHAPA_SECRET_KEY` | **Required.** Chapa API key — a `CHASECK_TEST-…` test key (a live key is refused unless `CHAPA_ALLOW_LIVE=true`) |
 | `CHAPA_WEBHOOK_SECRET` | The "Secret hash" registered in Chapa's dashboard (webhooks are rejected without it) |
@@ -112,6 +114,23 @@ triggers a server-side `GET /transaction/verify/{tx_ref}` to Chapa, and the plan
 success for the exact amount and currency, exactly once.
 
 In Chapa test mode use the test number `0900123456` (OTP `12345` if asked); no real money moves.
+
+### Testing from another device (invitation links)
+
+An invitation email links to `APP_URL/accept-invite?token=…`. With `APP_URL=http://localhost:5173`, a colleague who
+clicks it gets *"localhost refused to connect"*: `localhost` is **their own** device. To try invitations with
+another computer or a phone while everything runs on your machine, expose the **frontend** over HTTPS. One tunnel
+is enough, because the Vite dev server proxies `/api` to the backend:
+
+1. `ngrok http 5173` → note the public URL, e.g. `https://abcd-1234.ngrok-free.app`.
+2. `frontend/.env.local`: `VITE_ALLOWED_HOSTS=abcd-1234.ngrok-free.app` (Vite refuses unknown host names);
+   restart `npm run dev` in `frontend/`.
+3. `backend/.env`: `APP_URL=https://abcd-1234.ngrok-free.app`, and `API_URL=` the same URL (Chapa then reaches
+   `/api/v1/payments/webhooks/chapa` through the same tunnel); restart the API. It logs `Email links point to …`.
+4. Send a new invitation (links in earlier emails keep the old address; use **Resend** to issue a fresh one).
+
+Nothing is hard-coded: when the tunnel URL changes, update these values. In production, set `APP_URL` to the real
+frontend domain and `API_URL` to the real API domain.
 
 ### Email (SMTP)
 
@@ -242,7 +261,8 @@ Base path `/api/v1`. All responses: `{ success, data, meta? }` or `{ success: fa
 | Subscription | `GET /subscription`, `GET /subscription/plans`, `POST /subscription/cancel · resume` |
 | Payments | `GET /payments`, `POST /payments/checkout`, `GET /payments/:txRef`, `POST /payments/:txRef/verify · cancel`, `POST /payments/webhooks/chapa` |
 | Activity / Dashboard | `GET /activities`, `GET /dashboard`, `GET /dashboard/search?q=` |
-| Platform | `GET /platform/overview · organizations · plans · payments`, `PATCH /platform/organizations/:id`, `POST/PATCH /platform/plans[/:id]` |
+| Invitations | `GET /auth/invitations/:token`, `POST /auth/accept-invitation` (new account: name + password; existing account: its password, or signed in as that account) |
+| Platform | `GET /platform/overview · organizations · plans · payments · audit-log`, `PATCH /platform/organizations/:id`, `POST/PATCH /platform/plans[/:id]` |
 
 ## Testing
 
@@ -250,7 +270,19 @@ Base path `/api/v1`. All responses: `{ success, data, meta? }` or `{ success: fa
 cd backend && npm test
 ```
 
-75 integration tests run against a real PostgreSQL database and cover the business-critical scenarios:
+117 integration tests run against a real PostgreSQL database and cover the business-critical scenarios
+(full results: [PHASE1_BACKEND_AUDIT.md](PHASE1_BACKEND_AUDIT.md)):
+
+- **Invitations:** link uses `APP_URL`; accept page shows organization, inviter and role; new person accepts
+  without a session; existing account must give its password (or be signed in as itself); wrong signed-in account
+  refused; expired / used / withdrawn / replaced links; resend; duplicate and concurrent invitations and
+  acceptances; cross-tenant resend/withdraw; organization fixed by the invitation.
+- **Payment lifecycle:** cancelled at Chapa, abandoned → EXPIRED, late success after expiry or after being
+  superseded is honoured, Chapa unreachable or 5xx → 503 with nothing changed (webhook retried), settlement from
+  stored state only, unique transaction references, cross-tenant references → 404.
+- **Organizations & platform:** second organization as Owner with default roles and Free plan; per-person duplicate
+  names; name validation; switching scopes every view; stale-tab `WORKSPACE_CHANGED`; platform access separate from
+  ownership; audited platform actions; command-line-only provisioning.
 
 - **Chapa webhook & callback:** missing/forged signatures rejected; both Chapa signature schemes accepted; payment
   verified with Chapa's API before activation; checkout always creates a Chapa payment; a "success" webhook for a charge Chapa reports failed/pending/
@@ -311,6 +343,11 @@ Manual checks performed during development: screenshots of every page per role a
 - Deactivated members keep their tasks (shown as deactivated) until a manager reassigns them.
 - The platform super admin administers tenants and plans but does not read tenants' business data.
 - Prices are in ETB, monthly.
+- Organization names are not globally unique (different companies may share a name); one person cannot have two
+  workspaces with the same name. No organization names are suggested from other tenants.
+- Super admins are provisioned only from the command line:
+  `cd backend && npm run platform-admin -- grant|revoke <email>` (or `-- list`). The account must exist and be
+  verified; every grant, revocation and console action is written to the platform audit log.
 
 ## Known limitations
 

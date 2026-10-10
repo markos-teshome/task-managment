@@ -15,7 +15,7 @@ async function chapaFetch(path, options = {}) {
     signal: AbortSignal.timeout(15_000),
   });
   const body = await res.json().catch(() => ({}));
-  return { ok: res.ok, body };
+  return { ok: res.ok, status: res.status, body };
 }
 
 const toMajor = (cents) => (cents / 100).toFixed(2);
@@ -51,7 +51,9 @@ export const chapaProvider = {
   },
 
   async verify(payment) {
-    const { ok, body } = await chapaFetch(`/transaction/verify/${encodeURIComponent(payment.txRef)}`);
+    // Network errors and timeouts throw. A Chapa server error means "unknown", not "unpaid", so it throws too.
+    const { ok, status: httpStatus, body } = await chapaFetch(`/transaction/verify/${encodeURIComponent(payment.txRef)}`);
+    if (httpStatus >= 500) throw new Error(`Chapa verify unavailable (HTTP ${httpStatus})`);
     if (!ok || body.status !== 'success' || !body.data) return { status: 'PENDING' };
     const status = String(body.data.status).toLowerCase();
     if (status === 'success') {
@@ -63,6 +65,7 @@ export const chapaProvider = {
       };
     }
     if (status === 'failed') return { status: 'FAILED', failureReason: 'Payment failed at Chapa.' };
+    if (status === 'cancelled') return { status: 'CANCELLED', failureReason: 'Payment was cancelled at Chapa.' };
     return { status: 'PENDING' };
   },
 

@@ -3,14 +3,17 @@
  * The real Chapa provider code runs unchanged; only the network is replaced, so tests never
  * contact Chapa. Any other outbound HTTP call fails loudly.
  *
- *   chapaFake.settle(txRef, 'success' | 'failed' | 'pending')  — what Chapa's verify API will report.
+ *   chapaFake.settle(txRef, 'success' | 'failed' | 'pending' | 'cancelled')  — what Chapa's verify API will report.
+ *   chapaFake.outage = 'network' | 'server' | null  — simulate Chapa being unreachable / returning 5xx.
  */
 const CHAPA = 'https://api.chapa.co/v1';
 
 export const chapaFake = {
   transactions: new Map(), // tx_ref → { amount, currency, status }
+  outage: null,
   reset() {
     this.transactions.clear();
+    this.outage = null;
   },
   settle(txRef, status) {
     const tx = this.transactions.get(txRef);
@@ -25,6 +28,8 @@ export async function fakeChapaFetch(url, options = {}) {
   const href = String(url);
   if (!href.startsWith(CHAPA)) throw new Error(`Unexpected outbound HTTP call in tests: ${href}`);
   const path = href.slice(CHAPA.length);
+  if (chapaFake.outage === 'network') throw new TypeError('fetch failed');
+  if (chapaFake.outage === 'server') return json({ message: 'Service unavailable', status: 'failed' }, 503);
 
   if (path === '/transaction/initialize' && options.method === 'POST') {
     const body = JSON.parse(options.body);

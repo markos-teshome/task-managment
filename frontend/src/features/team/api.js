@@ -35,4 +35,8 @@ function useMemberMutation(fn) {
 export const useInviteMember = () => useMemberMutation((body) => api.post('/users', body));
 export const useUpdateMember = () => useMemberMutation(({ id, ...body }) => api.patch(`/users/${id}`, body));
 export const useRemoveMember = () => useMemberMutation((id) => api.delete(`/users/${id}`));
-export const useResendInvitation = () => useMutation({ mutationFn: (id) => api.post(`/users/${id}/resend-invitation`) });
+/** A resend issues a new link with a fresh expiry, so the list's invitation status changes too. */
+export function useResendInvitation() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id) => api.post(`/users/${id}/resend-invitation`), onSuccess: () => invalidate(qc, 'members') });
+}

@@ -98,5 +98,7 @@ test('platform admin manages tenants and plans', async ({ page }) => {
   await expect(page.getByRole('cell', { name: /^Abay Trading PLC Since/ })).toBeVisible();
   await expect(page.getByRole('cell', { name: /^Gift Construction PLC Since/ })).toBeVisible();
   await page.getByRole('link', { name: 'Plans & pricing' }).click();
-  await expect(page.getByRole('cell', { name: /Professional/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Plans & pricing' })).toBeVisible();
+  // The plan row shows the name and its code ("Professional PROFESSIONAL"); organization rows only the name.
+  await expect(page.getByRole('cell', { name: 'Professional PROFESSIONAL' })).toBeVisible();
 });

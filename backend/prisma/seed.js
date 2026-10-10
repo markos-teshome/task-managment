@@ -10,6 +10,7 @@
  * Re-running the seed wipes and recreates everything, so it refuses to run on a database that
  * holds data the seed did not create (e.g. real sign-ups or Chapa payments) unless SEED_FORCE=1.
  */
+import crypto from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { ensureReferenceData } from '../src/bootstrap.js';
@@ -224,6 +225,18 @@ async function main() {
     abayLog.add(A[k], 'MEMBER_JOINED', 'MEMBER', { entityId: A[k].id, at: A[k].joinedAt });
   }
   abayLog.add(A.sara, 'MEMBER_INVITED', 'MEMBER', { entityId: A.kalkidan.id, metadata: { memberName: name(A.kalkidan), roleName: 'Employee' }, at: ago(1, 3) });
+  // A real pending invitation has an inviter and a live link. Only the hash is stored and no email is sent,
+  // so the demo link itself cannot be opened; "Resend invitation" issues a working one.
+  await prisma.membership.update({ where: { id: A.kalkidan.id }, data: { invitedById: A.sara.id } });
+  await prisma.authToken.create({
+    data: {
+      userId: A.kalkidan.userId,
+      membershipId: A.kalkidan.id,
+      type: 'INVITATION',
+      tokenHash: crypto.createHash('sha256').update(crypto.randomBytes(32)).digest('hex'),
+      expiresAt: new Date(ago(1, 3).getTime() + 7 * 86_400_000),
+    },
+  });
   abayLog.add(A.sara, 'MEMBER_DEACTIVATED', 'MEMBER', { entityId: A.meron.id, metadata: { memberName: name(A.meron) }, at: ago(5) });
   abayLog.add(A.abebe, 'ROLE_CREATED', 'ROLE', { entityId: abay.roles['QA Reviewer'].id, metadata: { name: 'QA Reviewer' }, at: ago(21) });
 

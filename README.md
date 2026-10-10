@@ -169,16 +169,24 @@ after `migrate deploy` without running the seed or any manual SQL.
 - **Authentication:** register, email verification, login/logout, forgot/reset password, invitations,
   rotating refresh tokens, account lockout, rate limiting.
 - **Multi-tenant workspaces:** server-derived tenant context, 404 for foreign ids, composite tenant foreign keys,
-  workspace switching for people in several organizations.
+  a searchable organization switcher (only your own organizations) with "Create organization", and a guard that
+  stops a second tab from showing one organization's data under another's name.
 - **Role-based access:** Owner/Admin/Manager/Employee + custom roles on every plan, grouped permission editor,
   escalation protection, changes effective immediately.
-- **Team management:** invite, change role, deactivate/reactivate, revoke invitation, seat usage vs plan.
+- **Team management:** invite (with a review of organization and role), invitation status (pending / expired with
+  one-click resend), change role, deactivate/reactivate, revoke invitation, seat usage vs plan.
+- **Invitations:** a dedicated accept page showing organization, inviter and role; new people create their account
+  there, existing accounts confirm with their password; clear screens for expired, already-accepted, withdrawn,
+  wrong-account and network problems.
 - **Projects:** status, priority, dates, lead, team, progress, search/filter/sort, pagination, archive/restore.
 - **Tasks:** status workflow (To do → In progress → Blocked → Completed), priority, due date, assignee, filters,
   My Work buckets, CSV export (Business plan).
 - **Subscriptions:** Free / Professional / Business, editable by the platform admin; limits and features enforced
   server-side; expiry falls back to Free; cancel at period end.
-- **Payments:** checkout → provider → server-side verification → activation; idempotent; Chapa hosted checkout (test mode).
+- **Payments:** review → Chapa hosted checkout (test mode) → "Verifying your payment…" with bounded re-checks →
+  activation only after server-side verification. A slow confirmation ends in a recoverable "still being confirmed"
+  screen with **Check status** (never a fake failure or success); refreshing the page re-reads the server state;
+  success shows the receipt (plan, amount, time, reference).
 - **Dashboard:** key counts, my work, project progress, team workload, recent activity, plan usage.
 - **Activity history:** who did what, when — filterable, per project.
 - **Platform console:** organizations, suspend/reactivate, plan pricing & limits, revenue.
@@ -187,6 +195,8 @@ after `migrate deploy` without running the seed or any manual SQL.
 
 - **Navigation** is grouped (Workspace · Organization · Account) and only shows what your role can use. On phones
   and tablets it opens from the ☰ button.
+- **Organizations:** click the organization name in the top bar to search your organizations, switch (↑/↓,
+  Enter, Esc) or create a new one.
 - **Search** (top bar or Ctrl/⌘ K) finds projects, tasks and people you can see.
 - **Tasks open in a side drawer** from anywhere (`?task=<id>` in the URL, so links can be shared). Click a status
   badge to change it; the round checkbox completes a task in one click.
@@ -270,8 +280,9 @@ Base path `/api/v1`. All responses: `{ success, data, meta? }` or `{ success: fa
 cd backend && npm test
 ```
 
-117 integration tests run against a real PostgreSQL database and cover the business-critical scenarios
-(full results: [PHASE1_BACKEND_AUDIT.md](PHASE1_BACKEND_AUDIT.md)):
+118 integration tests run against a real PostgreSQL database and cover the business-critical scenarios
+(results: [PHASE1_BACKEND_AUDIT.md](PHASE1_BACKEND_AUDIT.md), [PHASE2_FRONTEND_QA.md](PHASE2_FRONTEND_QA.md),
+[FINAL_REQUIREMENTS_COMPLIANCE.md](FINAL_REQUIREMENTS_COMPLIANCE.md)):
 
 - **Invitations:** link uses `APP_URL`; accept page shows organization, inviter and role; new person accepts
   without a session; existing account must give its password (or be signed in as itself); wrong signed-in account
@@ -310,7 +321,7 @@ cd backend && npm test
 cd frontend && npm run test:e2e        # uses the installed Chrome; set PW_CHANNEL=msedge for Edge
 ```
 
-10 Playwright scenarios drive the real UI against the real API. Playwright starts an isolated stack on its own ports —
+16 Playwright scenarios drive the real UI against the real API. Playwright starts an isolated stack on its own ports —
 the API on the **test** database (seeded fresh), the frontend, and `e2e/fake-chapa-server.mjs`, a stand-in for
 Chapa's API and hosted checkout — so tests never touch live Chapa, your development database or running servers.
 Automated tests never send real email either: under `NODE_ENV=test` emails go to an in-memory outbox.
@@ -328,12 +339,21 @@ Automated tests never send real email either: under `NODE_ENV=test` emails go to
    redirect back to the requested page, wrong-password message, platform console.
 6. **Phone (Pixel 7)** — employee workflow through the navigation drawer and task drawer; every owner page has no
    horizontal overflow; dialogs open as bottom sheets that fit the screen.
+7. **Full journey (final acceptance rule)** — a brand-new owner registers → verifies → creates the organization →
+   invites (with review) → the member accepts on a phone → role changed to Manager → project → task assigned → the
+   member completes it → dashboard shows 100% → Free limit reached → upgrade, comes back before paying: "Verifying…"
+   then "still being confirmed" → pays → **Check status** → Professional with receipt → limit lifted → activity
+   history → another company cannot see any of it.
+8. **Invitations** — new person on a phone; existing account must enter its password (wrong password refused);
+   signed in as someone else → refused; expired invitation flagged in the team list and resent.
+9. **Organization switcher** — keyboard and Escape, create an organization (invalid name rejected), search with no
+   matches, keyboard selection, data of each organization kept apart.
 
 Every scenario also asserts there are no unexpected console errors.
 
-Manual checks performed during development: screenshots of every page per role at 320, 375, 768 and 1440 px
-(no horizontal overflow anywhere) and an axe-core accessibility audit of all main pages and the task drawer
-(0 violations).
+Scripted checks run during Phase 2 (results in [PHASE2_FRONTEND_QA.md](PHASE2_FRONTEND_QA.md)): every page per role at
+320, 375, 768 and 1440 px — no horizontal overflow, no console errors — and an axe-core audit of 21 pages and states
+(including the switcher, invite dialog, accept page and payment page): 0 violations.
 
 ## Assumptions
 

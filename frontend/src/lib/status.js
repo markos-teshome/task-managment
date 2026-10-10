@@ -36,6 +36,15 @@ export const MEMBER_STATUS = {
   DEACTIVATED: { label: 'Deactivated', tone: 'neutral', icon: UserX },
 };
 
+/** What the team list shows: an INVITED member is either a pending or an expired invitation. */
+export const MEMBER_DISPLAY_STATUS = {
+  ACTIVE: MEMBER_STATUS.ACTIVE,
+  PENDING: { label: 'Invite pending', tone: 'accent', icon: Mail },
+  EXPIRED: { label: 'Invite expired', tone: 'warning', icon: Clock },
+  DEACTIVATED: MEMBER_STATUS.DEACTIVATED,
+};
+export const memberDisplayStatus = (m) => (m.status === 'INVITED' ? (m.invitation?.expired ? 'EXPIRED' : 'PENDING') : m.status);
+
 export const PAYMENT_STATUS = {
   PENDING: { label: 'Pending', tone: 'warning', icon: Loader },
   SUCCEEDED: { label: 'Paid', tone: 'success', icon: CheckCircle2 },

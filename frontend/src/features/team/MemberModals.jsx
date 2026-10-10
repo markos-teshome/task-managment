@@ -27,6 +27,7 @@ const inviteSchema = z.object({
 });
 
 export function InviteMemberModal({ open, onOpenChange, roles, organization }) {
+  const { workspace } = useAuth();
   const invite = useInviteMember();
   const assignable = useAssignableRoles(roles);
   const [error, setError] = useState(null);
@@ -105,6 +106,17 @@ export function InviteMemberModal({ open, onOpenChange, roles, organization }) {
             </Field>
           </div>
           {selectedRole?.description && <p className="-mt-2 text-xs text-ink-subtle">{selectedRole.name}: {selectedRole.description}</p>}
+          {!atLimit && selectedRole && (
+            <div className="rounded-md border border-line bg-canvas px-3 py-2 text-[13px]" aria-live="polite">
+              <span className="text-ink-muted">Review: </span>
+              <span className="font-medium">{form.watch('email') || 'This person'}</span>
+              <span className="text-ink-muted"> will join </span>
+              <span className="font-medium">{workspace.organization.name}</span>
+              <span className="text-ink-muted"> as </span>
+              <span className="font-medium">{selectedRole.name}</span>
+              <span className="text-ink-muted">. The link is valid for 7 days.</span>
+            </div>
+          )}
         </DialogBody>
         <DialogFooter>
           <DialogClose asChild>

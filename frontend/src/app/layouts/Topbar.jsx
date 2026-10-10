@@ -1,55 +1,16 @@
 import { useNavigate } from 'react-router';
-import { Building2, Check, ChevronsUpDown, LogOut, Menu as MenuIcon, Search, Settings } from 'lucide-react';
-import { toast } from 'sonner';
+import { LogOut, Menu as MenuIcon, Search, Settings } from 'lucide-react';
 import { useAuth } from '../../features/auth/AuthProvider.jsx';
 import { Avatar } from '../../components/ui/Avatar.jsx';
 import { Button } from '../../components/ui/Button.jsx';
-import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../../components/ui/Menu.jsx';
-import { api } from '../../lib/api.js';
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '../../components/ui/Menu.jsx';
+import { OrganizationSwitcher } from '../../features/organizations/OrganizationSwitcher.jsx';
 
-/** Workspace switcher: a static name for single-workspace users, a menu when there are several. */
+/** Platform admins have no workspace; everyone else gets the organization switcher. */
 function WorkspaceSwitcher() {
-  const { me, workspace, applySession } = useAuth();
-  const navigate = useNavigate();
+  const { workspace } = useAuth();
   if (!workspace) return <span className="truncate text-[13px] font-semibold text-ink">TeamFlow Platform</span>;
-
-  const name = workspace.organization.name;
-  if (me.memberships.length < 2) {
-    return (
-      <span className="flex min-w-0 items-center gap-2">
-        <Building2 size={15} className="shrink-0 text-ink-subtle" aria-hidden="true" />
-        <span className="truncate text-[13px] font-semibold">{name}</span>
-      </span>
-    );
-  }
-
-  const switchTo = async (id) => {
-    try {
-      applySession(await api.post('/auth/switch-workspace', { membershipId: id }));
-      navigate('/');
-    } catch (err) {
-      toast.error(err.message);
-    }
-  };
-
-  return (
-    <Menu>
-      <MenuTrigger className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 hover:bg-canvas">
-        <Building2 size={15} className="shrink-0 text-ink-subtle" aria-hidden="true" />
-        <span className="truncate text-[13px] font-semibold">{name}</span>
-        <ChevronsUpDown size={13} className="shrink-0 text-ink-subtle" aria-hidden="true" />
-      </MenuTrigger>
-      <MenuContent align="start">
-        <MenuLabel>Switch workspace</MenuLabel>
-        {me.memberships.map((m) => (
-          <MenuItem key={m.id} onSelect={() => m.id !== workspace.membershipId && switchTo(m.id)}>
-            <span className="flex-1 truncate">{m.organization.name}</span>
-            {m.id === workspace.membershipId && <Check size={14} className="text-brand-600" aria-label="Current" />}
-          </MenuItem>
-        ))}
-      </MenuContent>
-    </Menu>
-  );
+  return <OrganizationSwitcher />;
 }
 
 export function Topbar({ onOpenNav, onOpenSearch, showSearch }) {

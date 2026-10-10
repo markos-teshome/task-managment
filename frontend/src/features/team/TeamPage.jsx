@@ -17,8 +17,8 @@ import { ConfirmDialog } from '../../components/ui/Dialog.jsx';
 import { EmptyState, ErrorState, PlanLimitNotice } from '../../components/feedback/States.jsx';
 import { useUrlFilters } from '../../hooks/useUrlFilters.js';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js';
-import { MEMBER_STATUS, options } from '../../lib/status.js';
-import { formatLongDate } from '../../lib/format.js';
+import { MEMBER_DISPLAY_STATUS, MEMBER_STATUS, memberDisplayStatus, options } from '../../lib/status.js';
+import { formatDate, formatLongDate } from '../../lib/format.js';
 import { cn } from '../../lib/cn.js';
 
 const KEYS = ['search', 'roleId', 'status', 'page'];
@@ -57,13 +57,30 @@ export function TeamPage() {
       },
     );
 
+  const resendTo = (m) =>
+    resend.mutate(m.id, { onSuccess: () => toast.success(`New invitation link sent to ${m.email}`), onError: (e) => toast.error(e.message) });
+
+  const statusCell = (m) => {
+    const status = memberDisplayStatus(m);
+    return (
+      <span className="inline-flex items-center gap-1.5" title={status === 'PENDING' && m.invitation?.expiresAt ? `Link valid until ${formatLongDate(m.invitation.expiresAt)}` : undefined}>
+        <StatusBadge map={MEMBER_DISPLAY_STATUS} value={status} />
+        {status === 'EXPIRED' && can('USER_CREATE') && (
+          <Button variant="link" className="text-xs" loading={resend.isPending && resend.variables === m.id} onClick={() => resendTo(m)}>
+            Resend
+          </Button>
+        )}
+      </span>
+    );
+  };
+
   const actions = (m) => {
     if (!canActOn(m)) return null;
     const items = [];
     if (can('USER_UPDATE') && m.status !== 'DEACTIVATED') items.push(<MenuItem key="role" icon={ShieldCheck} onSelect={() => setChangingRole(m)}>Change role</MenuItem>);
     if (can('USER_CREATE') && m.status === 'INVITED')
       items.push(
-        <MenuItem key="resend" icon={Mail} onSelect={() => resend.mutate(m.id, { onSuccess: () => toast.success(`Invitation sent again to ${m.email}`), onError: (e) => toast.error(e.message) })}>
+        <MenuItem key="resend" icon={Mail} onSelect={() => resendTo(m)}>
           Resend invitation
         </MenuItem>,
       );
@@ -103,9 +120,9 @@ export function TeamPage() {
     { key: 'name', header: 'Name', className: 'w-auto', cell: nameCell },
     { key: 'title', header: 'Job title', className: 'w-44', hideBelow: 'xl', cell: (m) => <span className="text-ink-muted">{m.jobTitle ?? '—'}</span> },
     { key: 'role', header: 'Role', className: 'w-36', cell: (m) => <Badge tone={m.role.key === 'OWNER' ? 'accent' : 'brand'}>{m.role.name}</Badge> },
-    { key: 'status', header: 'Status', className: 'w-32', cell: (m) => <StatusBadge map={MEMBER_STATUS} value={m.status} /> },
+    { key: 'status', header: 'Status', className: 'w-44', cell: statusCell },
     { key: 'tasks', header: 'Open tasks', className: 'w-24 text-right', headerClassName: 'w-24 text-right', cell: (m) => <span className="tabular-nums text-ink-muted">{m.status === 'INVITED' ? '—' : m.openTaskCount}</span> },
-    { key: 'joined', header: 'Joined', className: 'w-32', hideBelow: 'lg', cell: (m) => <span className="text-ink-muted">{m.joinedAt ? formatLongDate(m.joinedAt) : 'Pending'}</span> },
+    { key: 'joined', header: 'Joined', className: 'w-32', hideBelow: 'lg', cell: (m) => <span className="text-ink-muted">{m.joinedAt ? formatLongDate(m.joinedAt) : m.invitation?.expiresAt && !m.invitation.expired ? `Invite until ${formatDate(m.invitation.expiresAt)}` : '—'}</span> },
     { key: 'actions', header: <span className="sr-only">Actions</span>, className: 'w-12 text-right', cell: actions },
   ];
 
@@ -161,11 +178,12 @@ export function TeamPage() {
             loading={isLoading}
             mobileRow={(m) => (
               <div className="flex items-center gap-3">
-                <div className="min-w-0 flex-1">{nameCell(m)}</div>
-                <div className="flex flex-col items-end gap-1">
-                  <Badge tone={m.role.key === 'OWNER' ? 'accent' : 'brand'}>{m.role.name}</Badge>
-                  {m.status !== 'ACTIVE' && <StatusBadge map={MEMBER_STATUS} value={m.status} />}
+                <div className="min-w-0 flex-1">
+                  {nameCell(m)}
+                  {/* Status sits under the name on phones so it never squeezes the name. */}
+                  {m.status !== 'ACTIVE' && <div className="mt-1 pl-[42px]">{statusCell(m)}</div>}
                 </div>
+                <Badge tone={m.role.key === 'OWNER' ? 'accent' : 'brand'}>{m.role.name}</Badge>
                 {actions(m)}
               </div>
             )}

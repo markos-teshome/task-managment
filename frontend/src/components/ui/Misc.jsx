@@ -4,12 +4,13 @@ import { cn } from '../../lib/cn.js';
 import { Button } from './Button.jsx';
 
 export function Skeleton({ className }) {
-  return <div aria-hidden="true" className={cn('animate-pulse rounded bg-slate-200/70', className)} />;
+  return <div aria-hidden="true" className={cn('tf-skeleton', className)} />;
 }
 
+/** Small inline spinner in brand colour (buttons have their own, sized to keep the button stable). */
 export function Spinner({ size = 16, className, label = 'Loading' }) {
   return (
-    <span role="status" className={cn('inline-flex items-center text-ink-subtle', className)}>
+    <span role="status" className={cn('inline-flex items-center text-brand-600', className)}>
       <Loader2 size={size} className="animate-spin" aria-hidden="true" />
       <span className="sr-only">{label}</span>
     </span>

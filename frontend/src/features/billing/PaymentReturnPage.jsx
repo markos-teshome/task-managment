@@ -1,101 +1,123 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { CheckCircle2, Clock, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, ShieldCheck, XCircle } from 'lucide-react';
 import { api } from '../../lib/api.js';
 import { useRefreshEntitlements } from './api.js';
 import { Button, ButtonLink } from '../../components/ui/Button.jsx';
-import { Spinner } from '../../components/ui/Misc.jsx';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js';
-import { formatLimit, formatMoney } from '../../lib/format.js';
+import { formatLimit, formatLongDate, formatMoney, formatTime } from '../../lib/format.js';
 import { useAuth } from '../auth/AuthProvider.jsx';
 
-const MAX_CHECKS = 10;
+// Seconds to wait before each re-check: quick at first, then backing off (~40 s in total).
+const SCHEDULE = [2, 2, 3, 3, 5, 5, 8, 10];
+// "Can't tell right now" — never a reason to show the payment as failed.
+const TRANSIENT = ['PAYMENT_VERIFICATION_UNAVAILABLE', 'NETWORK_ERROR', 'SERVICE_UNAVAILABLE'];
+const FINAL = ['SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED'];
 
 /**
- * Where the provider sends the customer back. Shows "processing" until the backend confirms
- * the final status — success is only ever displayed from the server's answer.
+ * Where Chapa sends the customer back. Every state shown comes from the server: the page asks the API
+ * to verify the payment with Chapa, re-checks on a bounded schedule while it is pending, and stops on a
+ * final state or after the schedule with a recoverable "still confirming" screen. Refreshing the page or
+ * coming back later simply starts again from the server's answer.
  */
 export function PaymentReturnPage() {
   useDocumentTitle('Payment status');
   const [params] = useSearchParams();
   const txRef = params.get('tx_ref');
   const refreshEntitlements = useRefreshEntitlements();
-  const [state, setState] = useState({ phase: 'checking', payment: null, error: null, checks: 0 });
+  const [state, setState] = useState({ phase: 'verifying', payment: null, error: null });
+  const [run, setRun] = useState(0);
   const refreshed = useRef(false);
+
+  const restart = useCallback(() => {
+    setState((s) => ({ ...s, phase: 'verifying', error: null }));
+    setRun((r) => r + 1);
+  }, []);
 
   useEffect(() => {
     if (!txRef) return undefined;
     let cancelled = false;
     let timer;
     const check = async (attempt) => {
+      let payment = null;
+      let error = null;
       try {
-        const payment = await api.post(`/payments/${txRef}/verify`);
-        if (cancelled) return;
-        if (payment.status === 'PENDING' && attempt < MAX_CHECKS) {
-          setState({ phase: 'checking', payment, error: null, checks: attempt });
-          timer = setTimeout(() => check(attempt + 1), 2000);
-        } else {
-          setState({ phase: payment.status === 'PENDING' ? 'waiting' : 'done', payment, error: null, checks: attempt });
-          if (payment.status === 'SUCCEEDED' && !refreshed.current) {
-            refreshed.current = true;
-            refreshEntitlements();
-          }
+        payment = await api.post(`/payments/${encodeURIComponent(txRef)}/verify`);
+      } catch (err) {
+        error = err;
+      }
+      if (cancelled) return;
+
+      if (error && !TRANSIENT.includes(error.code)) {
+        setState({ phase: 'error', payment: null, error }); // e.g. unknown reference
+        return;
+      }
+      if (payment && FINAL.includes(payment.status)) {
+        setState({ phase: 'done', payment, error: null });
+        if (payment.status === 'SUCCEEDED' && !refreshed.current) {
+          refreshed.current = true;
+          refreshEntitlements(); // new limits, billing, dashboard and activity
         }
-      } catch (error) {
-        if (!cancelled) setState((s) => ({ ...s, phase: 'error', error }));
+        return;
+      }
+      // Still pending, or the provider couldn't be reached this time.
+      if (attempt < SCHEDULE.length) {
+        setState((s) => ({ phase: 'verifying', payment: payment ?? s.payment, error }));
+        timer = setTimeout(() => check(attempt + 1), SCHEDULE[attempt] * 1000);
+      } else {
+        setState((s) => ({ phase: 'waiting', payment: payment ?? s.payment, error }));
       }
     };
-    check(1);
+    check(0);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
+    // refreshEntitlements is recreated each render; the effect must only restart on a new reference or retry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [txRef, state.retry]);
+  }, [txRef, run]);
 
-  const retry = () => setState((s) => ({ ...s, phase: 'checking', error: null, retry: (s.retry ?? 0) + 1 }));
   const p = state.payment;
-
   let view;
   if (!txRef) {
-    view = <Result icon={XCircle} tone="danger" title="Missing payment reference" body="We couldn't tell which payment this is." />;
+    view = <Result icon={XCircle} tone="danger" title="Missing payment reference" body="We couldn't tell which payment this is. Open Plan & billing to see your payments." />;
   } else if (state.phase === 'error') {
     view = (
-      <Result icon={XCircle} tone="danger" title="We couldn't check your payment" body={state.error.code === 'NETWORK_ERROR' ? 'Your connection dropped. Your payment is safe — check again in a moment.' : state.error.message}>
-        <Button onClick={retry}>Check again</Button>
+      <Result icon={XCircle} tone="danger" title="We couldn't find this payment" body={state.error.message}>
+        <Button onClick={restart}>Try again</Button>
       </Result>
     );
-  } else if (state.phase === 'checking') {
-    view = (
-      <div className="flex flex-col items-center text-center">
-        <Spinner size={28} />
-        <h1 className="mt-4 text-lg font-semibold">Processing payment…</h1>
-        <p className="mt-1 text-[13px] text-ink-muted">We're confirming your payment with the provider. This usually takes a few seconds — please don't close this page.</p>
-      </div>
-    );
+  } else if (state.phase === 'verifying') {
+    view = <Verifying />;
   } else if (state.phase === 'waiting') {
     view = (
-      <Result icon={Clock} tone="warning" title="Still waiting for confirmation" body="The provider hasn't confirmed this payment yet. Nothing has been charged twice; your plan changes as soon as it's confirmed.">
-        <Button onClick={retry}>Check again</Button>
+      <Result
+        icon={Clock}
+        tone="warning"
+        title="Your payment is still being confirmed"
+        body="Please check your payment status. Confirmation can take a little longer; your plan changes as soon as the payment provider confirms it, and you won't be charged twice."
+      >
+        <Button variant="primary" onClick={restart}>Check status</Button>
       </Result>
     );
   } else if (p.status === 'SUCCEEDED') {
     view = (
-      <Result icon={CheckCircle2} tone="success" title={`You're on ${p.plan.name}`} body={`Payment of ${formatMoney(p.amountCents, p.currency)} confirmed. Your new limits are available now.`}>
+      <Result icon={CheckCircle2} tone="success" title={`You're on ${p.plan.name}`} body="Payment confirmed. Your new limits are available now.">
+        <Receipt payment={p} />
         <PlanLimits code={p.plan.code} />
         <ButtonLink to="/team" variant="primary">Invite your team</ButtonLink>
       </Result>
     );
   } else if (p.status === 'FAILED') {
     view = (
-      <Result icon={XCircle} tone="danger" title="Payment failed" body={`${p.failureReason ?? 'The payment did not go through.'} You have not been charged and your plan has not changed.`}>
+      <Result icon={XCircle} tone="danger" title="Payment failed" body={`${p.failureReason ?? 'The payment did not go through.'} Your plan has not changed.`}>
         <ButtonLink to="/billing#plans" variant="primary">Try again</ButtonLink>
       </Result>
     );
   } else if (p.status === 'EXPIRED') {
     view = (
       <Result icon={Clock} tone="neutral" title="Checkout expired" body="This checkout was not completed in time and your plan has not changed. If you did pay, it is confirmed automatically as soon as the provider reports it.">
-        <Button onClick={retry}>Check again</Button>
+        <Button onClick={restart}>Check again</Button>
         <ButtonLink to="/billing#plans" variant="primary">Start a new checkout</ButtonLink>
       </Result>
     );
@@ -119,6 +141,40 @@ export function PaymentReturnPage() {
   );
 }
 
+/** Restrained verification indicator: a ring that fills in brand colours around a shield — never a checkmark. */
+function Verifying() {
+  return (
+    <div className="flex flex-col items-center text-center" role="status">
+      <span className="relative inline-flex h-12 w-12 items-center justify-center">
+        <span className="absolute inset-0 rounded-full border-2 border-brand-100" aria-hidden="true" />
+        <span className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-brand-700 [animation-duration:1.1s]" aria-hidden="true" />
+        <ShieldCheck size={20} className="text-brand-700" aria-hidden="true" />
+      </span>
+      <h1 className="mt-4 text-lg font-semibold">Verifying your payment…</h1>
+      <p className="mt-1 text-[13px] text-ink-muted">We're confirming it with the payment provider. This can take a moment — you can stay on this page.</p>
+    </div>
+  );
+}
+
+function Receipt({ payment: p }) {
+  const rows = [
+    ['Plan', p.plan.name],
+    ['Amount', formatMoney(p.amountCents, p.currency)],
+    ['Confirmed', p.confirmedAt ? `${formatLongDate(p.confirmedAt)}, ${formatTime(p.confirmedAt)}` : '—'],
+    ['Reference', p.txRef],
+  ];
+  return (
+    <dl className="w-full divide-y divide-line rounded-md border border-line text-left text-[13px]">
+      {rows.map(([label, value]) => (
+        <div key={label} className="flex justify-between gap-3 px-3 py-1.5">
+          <dt className="text-ink-muted">{label}</dt>
+          <dd className={label === 'Reference' ? 'truncate font-mono text-[11.5px]' : 'font-medium tabular-nums'}>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function PlanLimits({ code }) {
   const { workspace } = useAuth();
   if (workspace?.plan.code !== code) return null;
@@ -138,7 +194,7 @@ function Result({ icon: Icon, tone, title, body, children }) {
       </span>
       <h1 className="mt-4 text-lg font-semibold">{title}</h1>
       <p className="mt-1 text-[13px] text-ink-muted">{body}</p>
-      {children && <div className="mt-5 flex flex-col items-center gap-3">{children}</div>}
+      {children && <div className="mt-5 flex w-full flex-col items-center gap-3">{children}</div>}
     </div>
   );
 }

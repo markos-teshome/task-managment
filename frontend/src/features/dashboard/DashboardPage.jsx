@@ -69,9 +69,10 @@ function MyWorkBlock({ work }) {
       }
     >
       {rows.length === 0 ? (
-        <div className="rounded-lg border border-line bg-surface">
-          <EmptyState compact icon={CheckCircle2} title="You're all caught up" description="No open tasks are assigned to you." />
-        </div>
+        <p className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2.5 text-[13px] text-ink-muted">
+          <CheckCircle2 size={16} className="shrink-0 text-success-600" aria-hidden="true" />
+          <span><span className="font-medium text-ink">You're all caught up.</span> No open tasks are assigned to you.</span>
+        </p>
       ) : (
         <>
           <p className="mb-1.5 text-xs text-ink-muted">
@@ -203,6 +204,36 @@ function ActivityBlock({ activity }) {
   );
 }
 
+/** Placeholders shaped like the real dashboard: metric strip, project rows, side panels. */
+function DashboardSkeleton() {
+  const rows = (n, h = 'h-12') => Array.from({ length: n }, (_, i) => <Skeleton key={i} className={cn(h, 'w-full')} />);
+  return (
+    <div aria-busy="true" aria-label="Loading dashboard">
+      <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line sm:grid-cols-5">
+        {Array.from({ length: 5 }, (_, i) => (
+          <div key={i} className="space-y-2 bg-surface px-4 py-3">
+            <Skeleton className="h-2.5 w-20" />
+            <Skeleton className="h-6 w-10" />
+            <Skeleton className="h-2.5 w-24" />
+          </div>
+        ))}
+      </div>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="space-y-2">
+          <Skeleton className="mb-3 h-3 w-32" />
+          {rows(4)}
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="mb-3 h-3 w-20" />
+          {rows(2, 'h-16')}
+          <Skeleton className="mb-3 mt-5 h-3 w-28" />
+          {rows(4, 'h-8')}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Side column only when it has something to show (employees get a single, full-width column). */
 const hasSide = (d) => !!(d.subscription || d.workload?.length || d.recentActivity);
 
@@ -237,13 +268,7 @@ export function DashboardPage() {
       {error ? (
         <ErrorState error={error} onRetry={refetch} />
       ) : isLoading ? (
-        <>
-          <Skeleton className="mb-6 h-[74px] w-full" />
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-            <Skeleton className="h-72 w-full" />
-            <Skeleton className="h-72 w-full" />
-          </div>
-        </>
+        <DashboardSkeleton />
       ) : (
         <>
           <MetricsStrip stats={data.stats} canProjects={canProjects} />

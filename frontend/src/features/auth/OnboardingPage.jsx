@@ -9,6 +9,7 @@ import { useAuth } from './AuthProvider.jsx';
 import { Field, FormAlert, Input } from '../../components/ui/Form.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { api } from '../../lib/api.js';
+import { rules } from '../../lib/forms.js';
 
 const BLOCKED = {
   MEMBERSHIP_INACTIVE: 'Your access to your organization has been removed. Contact its owner or admin.',
@@ -24,7 +25,7 @@ export function OnboardingPage() {
   const navigate = useNavigate();
   const [error, setError] = useState(null);
   const form = useForm({
-    resolver: zodResolver(z.object({ name: z.string().trim().min(2, 'Organization name is too short').max(80) })),
+    resolver: zodResolver(z.object({ name: rules.organizationName })),
     defaultValues: { name: '' },
   });
 

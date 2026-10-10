@@ -31,7 +31,18 @@ export const presentMember = (m) => ({
   joinedAt: m.joinedAt,
   createdAt: m.createdAt,
   ...(m._count && { openTaskCount: m._count.assignedTasks }),
+  // Pending invitations: when the current link expires, so admins know to resend.
+  ...(m.status === 'INVITED' && m.authTokens && { invitation: invitationState(m.authTokens[0]) }),
 });
+
+function invitationState(token) {
+  if (!token) return { expiresAt: null, expired: true };
+  return { expiresAt: token.expiresAt, expired: token.expiresAt < new Date() };
+}
+
+const pendingInvitationToken = {
+  authTokens: { where: { type: 'INVITATION', usedAt: null }, select: { expiresAt: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+};
 
 export async function listMembers(ctx, query) {
   const { skip, take, meta } = paginate(query);
@@ -54,6 +65,7 @@ export async function listMembers(ctx, query) {
       where,
       include: {
         ...memberInclude,
+        ...pendingInvitationToken,
         _count: { select: { assignedTasks: { where: { status: { not: 'COMPLETED' } } } } },
       },
       orderBy: [{ status: 'asc' }, { user: { firstName: 'asc' } }],

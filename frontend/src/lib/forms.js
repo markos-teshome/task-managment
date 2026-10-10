@@ -8,6 +8,18 @@ export const rules = {
     .min(8, 'Use at least 8 characters')
     .refine((v) => /[A-Za-z]/.test(v) && /\d/.test(v), 'Include at least one letter and one number'),
   name: z.string().trim().min(1, 'Required').max(60, 'Too long'),
+  // Same rules as the API: spaces collapsed, 2–80 characters, letters or numbers, no control characters or < >.
+  organizationName: z
+    .string()
+    .transform((v) => v.trim().replace(/\s+/g, ' '))
+    .pipe(
+      z
+        .string()
+        .min(2, 'Organization name is too short')
+        .max(80, 'Organization name is too long')
+        .refine((v) => /[\p{L}\p{N}]/u.test(v), 'Use letters or numbers')
+        .refine((v) => !/[\p{Cc}<>]/u.test(v), 'Remove the < > characters'),
+    ),
 };
 
 /** Copies 422 field errors from the API onto react-hook-form fields. Returns true if any matched. */

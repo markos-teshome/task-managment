@@ -17,9 +17,30 @@ const newUserSchema = z.object({ firstName: rules.name, lastName: rules.name, pa
 const existingUserSchema = z.object({ password: z.string().min(1, 'Enter your password') });
 
 const INVALID_TITLES = {
-  INVITATION_EXPIRED: 'Invitation expired',
+  INVITATION_EXPIRED: 'This invitation has expired',
   INVITATION_ALREADY_ACCEPTED: 'Invitation already accepted',
 };
+const UNREACHABLE = ['NETWORK_ERROR', 'SERVICE_UNAVAILABLE'];
+
+/** Organization, inviter, role and address at a glance, before anyone types anything. */
+function InvitationSummary({ inv }) {
+  const rows = [
+    ['Organization', inv.organizationName],
+    ...(inv.inviterName ? [['Invited by', inv.inviterName]] : []),
+    ['Role', inv.roleName],
+    ['Invitation for', inv.email],
+  ];
+  return (
+    <dl className="mb-5 divide-y divide-line rounded-md border border-line text-[13px]">
+      {rows.map(([label, value]) => (
+        <div key={label} className="flex items-center justify-between gap-3 px-3 py-2">
+          <dt className="text-ink-muted">{label}</dt>
+          <dd className="min-w-0 truncate font-medium">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 /**
  * The invitation decides the organization and role; the person only confirms who they are:
@@ -70,6 +91,18 @@ export function AcceptInvitePage() {
     }
   };
 
+  if (invitation.isError && UNREACHABLE.includes(invitation.error.code)) {
+    return (
+      <AuthLayout title="We couldn't open your invitation">
+        <FormAlert>{invitation.error.message}</FormAlert>
+        <p className="mt-3 text-[13px] text-ink-muted">Your invitation is still valid. Check your connection and try again.</p>
+        <Button variant="primary" size="lg" className="mt-4 w-full" loading={invitation.isFetching} onClick={() => invitation.refetch()}>
+          Try again
+        </Button>
+      </AuthLayout>
+    );
+  }
+
   if (!token || invitation.isError) {
     const code = invitation.error?.code;
     return (
@@ -94,9 +127,9 @@ export function AcceptInvitePage() {
     );
   }
 
-  const invitedBy = inv.inviterName ? `${inv.inviterName} invited you` : "You've been invited";
   return (
-    <AuthLayout title={`Join ${inv.organizationName}`} subtitle={`${invitedBy} as ${inv.roleName}. This invitation is for ${inv.email}.`}>
+    <AuthLayout title={`You're invited to join ${inv.organizationName}`} subtitle="Accept to start working with your team on TeamFlow.">
+      <InvitationSummary inv={inv} />
       {wrongAccount ? (
         <div className="space-y-4">
           <FormAlert>

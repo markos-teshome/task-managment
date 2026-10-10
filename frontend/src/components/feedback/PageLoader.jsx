@@ -16,11 +16,13 @@ export function PageLoader() {
   );
 }
 
-/** Full-screen splash while the session is restored on first load. */
-export function SplashScreen() {
+/** Full-screen splash while the session is restored: compact brand mark, a thin brand progress bar, one line. */
+export function SplashScreen({ message = 'Loading your workspace…' }) {
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-canvas" aria-busy="true" aria-label="Loading TeamFlow">
-      <LogoMark size={40} className="animate-pulse" />
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-canvas" role="status" aria-busy="true">
+      <LogoMark size={36} />
+      <div className="tf-progress w-28" aria-hidden="true" />
+      <p className="text-[12.5px] text-ink-subtle">{message}</p>
     </div>
   );
 }

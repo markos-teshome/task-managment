@@ -154,6 +154,17 @@ describe('invalid, expired, used and withdrawn invitations', () => {
     expect((await accept({ token: newToken, firstName: 'S', lastName: 'B', password: PASSWORD })).status).toBe(200);
   });
 
+  it('the team list tells admins whether a pending invitation is still valid', async () => {
+    const res = await invite(owner, { email: 'sara@example.com' });
+    const listed = async () => (await as(owner).get('/users')).body.data.find((m) => m.id === res.body.data.id);
+    expect((await listed()).invitation).toMatchObject({ expired: false });
+
+    await prisma.authToken.updateMany({ where: { membershipId: res.body.data.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    expect((await listed()).invitation.expired).toBe(true);
+    // Active members carry no invitation details.
+    expect((await as(owner).get('/users')).body.data.find((m) => m.status === 'ACTIVE').invitation).toBeUndefined();
+  });
+
   it('a used invitation cannot be used again and creates no second membership', async () => {
     await invite(owner, { email: 'sara@example.com' });
     const token = lastEmailToken('sara@example.com');

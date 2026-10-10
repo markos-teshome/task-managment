@@ -1,31 +1,10 @@
-import crypto from 'node:crypto';
-import { createRequire } from 'node:module';
 import { test, expect } from '@playwright/test';
 import { PASSWORD, signIn, USERS, watchConsole } from './helpers.js';
+import { bcrypt, emailLink, prisma } from './db.js';
 
-// The API keeps emails in memory during e2e runs, so the test issues the invitation link the same way the
-// email does (a random token whose SHA-256 is stored). The email's link format is covered by backend tests.
-const { PrismaClient } = createRequire(import.meta.url)('../../backend/node_modules/@prisma/client');
-const prisma = new PrismaClient({ datasourceUrl: process.env.E2E_DATABASE_URL });
 test.afterAll(() => prisma.$disconnect());
 
-async function invitationLink(email, organizationSlug) {
-  const membership = await prisma.membership.findFirst({
-    where: { status: 'INVITED', user: { email }, organization: { slug: organizationSlug } },
-  });
-  const raw = crypto.randomBytes(32).toString('base64url');
-  await prisma.authToken.deleteMany({ where: { membershipId: membership.id, usedAt: null } });
-  await prisma.authToken.create({
-    data: {
-      userId: membership.userId,
-      membershipId: membership.id,
-      type: 'INVITATION',
-      tokenHash: crypto.createHash('sha256').update(raw).digest('hex'),
-      expiresAt: new Date(Date.now() + 86_400_000),
-    },
-  });
-  return `/accept-invite?token=${raw}`;
-}
+const invitationLink = (email, organizationSlug) => emailLink('INVITATION', email, organizationSlug);
 
 async function inviteFromTeamPage(page, { email, firstName, lastName }) {
   await page.getByRole('link', { name: 'Team', exact: true }).click();
@@ -49,8 +28,10 @@ test('a new person accepts an invitation on their phone and lands in the right o
   const p = await phone.newPage();
   const errors = watchConsole(p);
   await p.goto(link);
-  await expect(p.getByRole('heading', { name: 'Join Abay Trading PLC' })).toBeVisible();
-  await expect(p.getByText(/invited you as Employee/)).toBeVisible();
+  await expect(p.getByRole('heading', { name: "You're invited to join Abay Trading PLC" })).toBeVisible();
+  const summary = p.getByRole('definition');
+  await expect(summary.filter({ hasText: 'Abebe Kebede' })).toBeVisible(); // invited by
+  await expect(summary.filter({ hasText: 'Employee' })).toBeVisible(); // role
   await p.getByLabel('Create a password').fill(PASSWORD);
   await p.getByRole('button', { name: 'Accept invitation' }).click();
 
@@ -71,7 +52,6 @@ test('a new person accepts an invitation on their phone and lands in the right o
 test('an existing account must enter its password to join', async ({ page, browser }) => {
   // A person who already registered elsewhere (fresh account, so other specs' demo users are untouched).
   const email = `existing.${Date.now()}@example.com`;
-  const bcrypt = createRequire(import.meta.url)('../../backend/node_modules/bcryptjs');
   await prisma.user.create({
     data: { email, firstName: 'Yonas', lastName: 'Haile', passwordHash: await bcrypt.hash(PASSWORD, 4), emailVerifiedAt: new Date() },
   });
@@ -104,4 +84,17 @@ test('someone signed in as a different account cannot claim the invitation', asy
   await page.goto(link); // still signed in as the owner
   await expect(page.getByText(`this invitation was sent to ${email}`)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Accept invitation' })).toHaveCount(0);
+});
+
+test('an expired invitation is flagged in the team list and can be resent', async ({ page }) => {
+  const member = await prisma.membership.findFirst({ where: { status: 'INVITED', user: { email: 'kalkidan@abaytrading.test' } } });
+  await prisma.authToken.updateMany({ where: { membershipId: member.id, usedAt: null }, data: { expiresAt: new Date(Date.now() - 60_000) } });
+
+  await signIn(page, USERS.owner);
+  await page.getByRole('link', { name: 'Team', exact: true }).click();
+  const row = page.getByRole('row', { name: /Kalkidan Mulu/ });
+  await expect(row.getByText('Invite expired')).toBeVisible();
+  await row.getByRole('button', { name: 'Resend' }).click();
+  await expect(page.getByText('New invitation link sent to kalkidan@abaytrading.test')).toBeVisible();
+  await expect(row.getByText('Invite pending')).toBeVisible();
 });

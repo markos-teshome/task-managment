@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { visibleProjectsWhere } from '../projects/project.service.js';
 import { fullName, paginate } from '../../common/utils/http.js';
 
 export const ACTIONS = {
@@ -42,6 +43,14 @@ export const ACTIONS = {
   PAYMENT_INITIATED: 'PAYMENT_INITIATED',
   PAYMENT_COMPLETED: 'PAYMENT_COMPLETED',
   PAYMENT_FAILED: 'PAYMENT_FAILED',
+
+  BRANCH_CREATED: 'BRANCH_CREATED',
+  BRANCH_UPDATED: 'BRANCH_UPDATED',
+  BRANCH_ARCHIVED: 'BRANCH_ARCHIVED',
+  BRANCH_REACTIVATED: 'BRANCH_REACTIVATED',
+  BRANCH_DEFAULT_CHANGED: 'BRANCH_DEFAULT_CHANGED',
+  BRANCH_MEMBER_ADDED: 'BRANCH_MEMBER_ADDED',
+  BRANCH_MEMBER_REMOVED: 'BRANCH_MEMBER_REMOVED',
 };
 
 const STATUS_LABELS = {
@@ -56,6 +65,13 @@ const DESCRIBE = {
   ORGANIZATION_UPDATED: (m) => `renamed the organization to "${m.name}"`,
   ORGANIZATION_SUSPENDED: () => 'suspended this organization',
   ORGANIZATION_REACTIVATED: () => 'reactivated this organization',
+  BRANCH_CREATED: (m) => `created the branch "${m.name}"`,
+  BRANCH_UPDATED: (m) => `updated the branch "${m.name}"`,
+  BRANCH_ARCHIVED: (m) => `archived the branch "${m.name}"${m.movedProjects ? ` and moved ${m.movedProjects} project(s) to ${m.movedTo}` : ''}`,
+  BRANCH_REACTIVATED: (m) => `reactivated the branch "${m.name}"`,
+  BRANCH_DEFAULT_CHANGED: (m) => `made "${m.name}" the default branch`,
+  BRANCH_MEMBER_ADDED: (m) => `added ${m.memberNames} to the branch "${m.name}"`,
+  BRANCH_MEMBER_REMOVED: (m) => `removed ${m.memberName} from the branch "${m.name}"`,
   MEMBER_INVITED: (m) => `invited ${m.memberName} as ${m.roleName}`,
   MEMBER_JOINED: () => 'joined the organization',
   MEMBER_ROLE_CHANGED: (m) => `changed ${m.memberName}'s role from ${m.fromRole} to ${m.toRole}`,
@@ -114,9 +130,20 @@ export function presentActivity(a) {
 
 const actorInclude = { actor: { include: { user: { select: { firstName: true, lastName: true } } } } };
 
+/**
+ * Entries about a project are only shown to people who can see that project, so a branch project's name
+ * never reaches someone outside the branch through the history. People with BRANCH_MANAGE see everything.
+ */
+async function projectScope(ctx) {
+  if (ctx.can('BRANCH_MANAGE')) return {};
+  const visible = await prisma.project.findMany({ where: visibleProjectsWhere(ctx), select: { id: true } });
+  return { OR: [{ projectId: null }, { projectId: { in: visible.map((p) => p.id) } }] };
+}
+
 export async function listActivities(ctx, query) {
   const { skip, take, meta } = paginate(query);
   const where = {
+    ...(await projectScope(ctx)),
     organizationId: ctx.organizationId,
     ...(query.actorId && { actorId: query.actorId }),
     ...(query.entityType && { entityType: query.entityType }),
@@ -134,9 +161,10 @@ export async function listActivities(ctx, query) {
   return { items: items.map(presentActivity), meta: meta(total) };
 }
 
-export async function recentActivities(organizationId, { take = 10, projectId } = {}) {
+/** Latest entries for the dashboard (scoped like the history) or for one project the caller can already see. */
+export async function recentActivities(ctx, { take = 10, projectId } = {}) {
   const items = await prisma.activityLog.findMany({
-    where: { organizationId, ...(projectId && { projectId }) },
+    where: { organizationId: ctx.organizationId, ...(projectId ? { projectId } : await projectScope(ctx)) },
     include: actorInclude,
     orderBy: { createdAt: 'desc' },
     take,

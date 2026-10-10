@@ -33,3 +33,14 @@ export async function emailLink(type, email, organizationSlug) {
   });
   return `${PATHS[type]}?token=${raw}`;
 }
+
+/** Platform sign-in sends a 6-digit code by email; tests replace the latest challenge's code with a known one. */
+export async function knownPlatformCode(email, code = '246810') {
+  const admin = await prisma.platformAdmin.findUnique({ where: { email } });
+  const challenge = await prisma.platformLoginChallenge.findFirst({ where: { adminId: admin.id, usedAt: null }, orderBy: { createdAt: 'desc' } });
+  await prisma.platformLoginChallenge.update({
+    where: { id: challenge.id },
+    data: { codeHash: crypto.createHash('sha256').update(`${challenge.id}:${code}`).digest('hex') },
+  });
+  return code;
+}

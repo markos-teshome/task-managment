@@ -1,7 +1,8 @@
 import { lazy, Suspense } from 'react';
 import { createBrowserRouter, Link } from 'react-router';
 import { AppShell } from './layouts/AppShell.jsx';
-import { GuestOnly, OnboardingGate, RequireAuth, RequirePermission, RequirePlatformAdmin, RequireWorkspace } from './guards.jsx';
+import { GuestOnly, OnboardingGate, RequireAuth, RequirePermission, RequireWorkspace } from './guards.jsx';
+import { RequirePlatformSession } from '../features/platform/PlatformAuth.jsx';
 import { SplashScreen } from '../components/feedback/PageLoader.jsx';
 import { LogoMark } from '../components/brand/Logo.jsx';
 
@@ -30,6 +31,7 @@ const PlatformOverviewPage = page(() => import('../features/platform/PlatformPag
 const PlatformOrganizationsPage = page(() => import('../features/platform/PlatformPages.jsx'), 'PlatformOrganizationsPage');
 const PlatformPlansPage = page(() => import('../features/platform/PlatformPages.jsx'), 'PlatformPlansPage');
 const PlatformPaymentsPage = page(() => import('../features/platform/PlatformPages.jsx'), 'PlatformPaymentsPage');
+const PlatformLoginPage = page(() => import('../features/platform/PlatformAuth.jsx'), 'PlatformLoginPage');
 
 const standalone = (el) => <Suspense fallback={<SplashScreen />}>{el}</Suspense>;
 const guard = (any, el) => <RequirePermission any={any}>{el}</RequirePermission>;
@@ -60,26 +62,27 @@ export const router = createBrowserRouter([
   { path: '/verify-email', element: standalone(<VerifyEmailPage />) },
   { path: '/reset-password', element: standalone(<ResetPasswordPage />) },
   { path: '/accept-invite', element: standalone(<AcceptInvitePage />) },
+  // Platform console: its own sign-in and session, independent of the tenant app's.
+  { path: '/platform/login', element: standalone(<PlatformLoginPage />) },
+  {
+    path: '/platform',
+    element: <RequirePlatformSession />,
+    children: [
+      {
+        element: <AppShell platform />,
+        children: [
+          { index: true, element: <PlatformOverviewPage /> },
+          { path: 'organizations', element: <PlatformOrganizationsPage /> },
+          { path: 'plans', element: <PlatformPlansPage /> },
+          { path: 'payments', element: <PlatformPaymentsPage /> },
+        ],
+      },
+    ],
+  },
   {
     element: <RequireAuth />,
     children: [
       { path: '/onboarding', element: <OnboardingGate>{standalone(<OnboardingPage />)}</OnboardingGate> },
-      {
-        path: '/platform',
-        element: <RequirePlatformAdmin />,
-        children: [
-          {
-            element: <AppShell platform />,
-            children: [
-              { index: true, element: <PlatformOverviewPage /> },
-              { path: 'organizations', element: <PlatformOrganizationsPage /> },
-              { path: 'plans', element: <PlatformPlansPage /> },
-              { path: 'payments', element: <PlatformPaymentsPage /> },
-              { path: 'settings', element: <SettingsPage /> },
-            ],
-          },
-        ],
-      },
       {
         element: <RequireWorkspace />,
         children: [

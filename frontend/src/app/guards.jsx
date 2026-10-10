@@ -31,16 +31,11 @@ export function GuestOnly() {
   return <Outlet />;
 }
 
-/** Tenant pages need an active workspace; platform admins go to their console instead. */
+/** Tenant pages need an active workspace. (Platform admins use their own sign-in at /platform/login.) */
 export function RequireWorkspace() {
-  const { workspace, user } = useAuth();
+  const { workspace } = useAuth();
   if (workspace) return <Outlet />;
-  return <Navigate to={user.isPlatformAdmin ? '/platform' : '/onboarding'} replace />;
-}
-
-export function RequirePlatformAdmin() {
-  const { user } = useAuth();
-  return user.isPlatformAdmin ? <Outlet /> : <AccessDenied message="The platform console is only available to TeamFlow administrators." />;
+  return <Navigate to="/onboarding" replace />;
 }
 
 /** Page-level permission gate (UX only — every API call is authorised by the server). */

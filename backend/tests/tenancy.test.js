@@ -167,7 +167,7 @@ describe("filters and side doors with another tenant's ids", () => {
 
   it("a tenant's subscription and dashboard reflect only its own usage", async () => {
     const sub = await as(tokenA).get('/subscription');
-    expect(sub.body.data.usage).toEqual({ users: 2, projects: 0 });
+    expect(sub.body.data.usage).toEqual({ users: 2, projects: 0, branches: 1 } );
   });
 });
 

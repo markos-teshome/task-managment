@@ -20,6 +20,7 @@ const listQuery = z.object({
   status: status.optional(),
   priority: priority.optional(),
   leadId: id.optional(),
+  branchId: z.union([id, z.literal('none')]).optional(), // 'none' = organization-wide projects
   archived: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   sort: z.enum(['name', 'dueDate', 'createdAt', 'priority', 'status']).default('createdAt'),
   order: z.enum(['asc', 'desc']).default('desc'),
@@ -33,6 +34,7 @@ const fields = {
   startDate: dateOnly.nullable(),
   dueDate: dateOnly.nullable(),
   leadId: id.nullable(),
+  branchId: id.nullable(), // null = organization-wide
 };
 
 const createBody = z
@@ -43,6 +45,7 @@ const createBody = z
     startDate: fields.startDate.optional(),
     dueDate: fields.dueDate.optional(),
     leadId: fields.leadId.optional(),
+    branchId: fields.branchId.optional(),
     memberIds: z.array(id).max(100).optional(),
   })
   .strict();
@@ -95,7 +98,7 @@ router.delete('/:id/members/:membershipId', requirePermission('PROJECT_UPDATE'),
 
 router.get('/:id/activity', requirePermission('ACTIVITY_VIEW'), validate({ params: idParam }), async (req, res) => {
   await projects.findVisibleProject(req.ctx, req.valid.params.id);
-  ok(res, await recentActivities(req.ctx.organizationId, { projectId: req.valid.params.id, take: 50 }));
+  ok(res, await recentActivities(req.ctx, { projectId: req.valid.params.id, take: 50 }));
 });
 
 export default router;

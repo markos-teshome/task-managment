@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, tenantRoute, requirePermission } from '../../common/middleware/auth.js';
+import { id } from '../../common/validators/index.js';
 import { validate } from '../../common/middleware/validate.js';
 import { ok, created } from '../../common/utils/http.js';
 import { organizationName } from '../../common/validators/index.js';
-import { createOrganization, getCurrentOrganization, updateOrganization } from './organization.service.js';
+import { createOrganization, getCurrentOrganization, listMyOrganizations, membershipFor, updateOrganization } from './organization.service.js';
 import { switchSessionWorkspace } from '../auth/auth.service.js';
 
 const router = Router();
@@ -23,6 +24,16 @@ router.post('/', authenticate, validate({ body: orgBody }), async (req, res) => 
   created(res, session);
 });
 
+/**
+ * POST /organizations/switch — makes another of the caller's organizations the session's active one.
+ * The new security context (membership, role, permissions, plan) is loaded from the database on the
+ * very next request; the response carries a fresh access token and profile for it.
+ */
+router.post('/switch', authenticate, validate({ body: z.object({ organizationId: id }).strict() }), async (req, res) => {
+  const membershipId = await membershipFor(req.ctx, req.valid.body.organizationId);
+  ok(res, await switchSessionWorkspace(req.ctx, membershipId));
+});
+
 /** The organization is always the caller's current one — there is no :id to tamper with. */
 router.get('/current', tenantRoute, async (req, res) => {
   ok(res, await getCurrentOrganization(req.ctx));
@@ -33,3 +44,7 @@ router.patch('/current', tenantRoute, requirePermission('ORG_MANAGE'), validate(
 });
 
 export default router;
+
+/** /me/* — the signed-in person, across organizations. */
+export const meRouter = Router();
+meRouter.get('/organizations', authenticate, async (req, res) => ok(res, await listMyOrganizations(req.ctx)));

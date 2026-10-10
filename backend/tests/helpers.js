@@ -15,7 +15,7 @@ export { prisma, testOutbox, chapaFake };
 /** Empties all tenant data, keeping the permission catalog and plans. */
 export async function resetDb() {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "platform_audit_logs","activity_logs","payments","subscriptions","tasks","project_members","projects","auth_tokens","sessions","memberships","role_permissions","roles","organizations","users" CASCADE',
+    'TRUNCATE TABLE "platform_login_challenges","platform_sessions","platform_audit_logs","platform_admins","branch_memberships","branches","activity_logs","payments","subscriptions","tasks","project_members","projects","auth_tokens","sessions","memberships","role_permissions","roles","organizations","users" CASCADE',
   );
   await ensureReferenceData();
   for (const { code, ...plan } of DEFAULT_PLANS) await prisma.subscriptionPlan.update({ where: { code }, data: { ...plan, isActive: true } });
@@ -81,3 +81,40 @@ export async function createTask(token, projectId, body = {}) {
   if (res.status !== 201) throw new Error(`createTask failed: ${JSON.stringify(res.body)}`);
   return res.body.data;
 }
+
+export const PLATFORM_PASSWORD = 'Platform-Pass-2026';
+const PLATFORM_HEADER = { 'X-TeamFlow-Client': 'test' };
+
+export async function createPlatformAdmin({ email = `operator-${uid()}@example.com`, status = 'ACTIVE' } = {}) {
+  return prisma.platformAdmin.create({
+    data: { email, firstName: 'Platform', lastName: 'Operator', passwordHash: await hashPassword(PLATFORM_PASSWORD), status },
+  });
+}
+
+/** The code from the latest platform sign-in email sent to `to`. */
+export const lastPlatformCode = (to) => {
+  const mail = [...testOutbox].reverse().find((m) => m.to === to && m.template === 'platform-login-code');
+  return mail?.text.match(/code is: (\d{6})/)?.[1] ?? null;
+};
+
+/**
+ * Full two-step platform sign-in (password → emailed code). Returns a supertest agent that keeps the
+ * platform session cookie: platform(agent).get('/platform/overview').
+ */
+export async function platformLogin(email, password = PLATFORM_PASSWORD) {
+  const agent = request.agent(app);
+  const start = await agent.post('/api/v1/platform/auth/login').set(PLATFORM_HEADER).send({ email, password });
+  if (start.status !== 200) throw new Error(`platform login failed: ${JSON.stringify(start.body)}`);
+  const verify = await agent
+    .post('/api/v1/platform/auth/verify')
+    .set(PLATFORM_HEADER)
+    .send({ challengeId: start.body.data.challengeId, code: lastPlatformCode(email) });
+  if (verify.status !== 200) throw new Error(`platform verify failed: ${JSON.stringify(verify.body)}`);
+  return agent;
+}
+
+/** Requests through a platform agent, with the client header the platform API requires for writes. */
+export const platform = (agent) => {
+  const wrap = (method) => (path) => agent[method](`/api/v1${path}`).set(PLATFORM_HEADER);
+  return { get: wrap('get'), post: wrap('post'), patch: wrap('patch'), delete: wrap('delete') };
+};

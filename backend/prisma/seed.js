@@ -16,6 +16,7 @@ import bcrypt from 'bcryptjs';
 import { ensureReferenceData } from '../src/bootstrap.js';
 import { createSystemRoles } from '../src/modules/roles/role.service.js';
 import { TRANSACTION_OPTIONS } from '../src/lib/prisma.js';
+import { DEFAULT_BRANCH_NAME } from '../src/common/constants/plans.js';
 
 const prisma = new PrismaClient({ transactionOptions: TRANSACTION_OPTIONS });
 const DEMO_PASSWORD = 'Demo@1234';
@@ -50,16 +51,42 @@ async function assertSafeToReset() {
 async function reset() {
   await prisma.organization.deleteMany(); // cascades to all tenant data
   await prisma.user.deleteMany();
+  await prisma.platformAuditLog.deleteMany();
+  await prisma.platformAdmin.deleteMany(); // cascades to platform sessions and sign-in codes
 }
 
-async function createUser({ email, firstName, lastName, isPlatformAdmin = false }, passwordHash) {
+async function createUser({ email, firstName, lastName }, passwordHash) {
   return prisma.user.create({
-    data: { email, firstName, lastName, passwordHash, isPlatformAdmin, emailVerifiedAt: ago(60) },
+    data: { email, firstName, lastName, passwordHash, emailVerifiedAt: ago(60) },
   });
+}
+
+/** Branches beyond the default Head Office: { name, code, manager, members: [keys] }. */
+async function createBranches(tenant, branches, log) {
+  const created = {};
+  for (const b of branches) {
+    const branch = await prisma.branch.create({
+      data: {
+        organizationId: tenant.org.id,
+        name: b.name,
+        code: b.code,
+        address: b.address,
+        managerId: b.manager ? tenant.members[b.manager].id : null,
+        createdAt: ago(b.createdDaysAgo),
+      },
+    });
+    await prisma.branchMembership.createMany({
+      data: b.members.map((k) => ({ branchId: branch.id, membershipId: tenant.members[k].id, organizationId: tenant.org.id })),
+    });
+    created[b.name] = branch;
+    log.add(tenant.members[b.createdBy], 'BRANCH_CREATED', 'BRANCH', { entityId: branch.id, metadata: { name: b.name }, at: ago(b.createdDaysAgo) });
+  }
+  return created;
 }
 
 async function createTenant({ name, slug, plan, createdDaysAgo, people, customRoles = [] }, passwordHash) {
   const org = await prisma.organization.create({ data: { name, slug, createdAt: ago(createdDaysAgo) } });
+  await prisma.branch.create({ data: { organizationId: org.id, name: DEFAULT_BRANCH_NAME, isDefault: true, createdAt: ago(createdDaysAgo) } });
   const roles = await prisma.$transaction((tx) => createSystemRoles(tx, org.id));
 
   const permissionIds = new Map((await prisma.permission.findMany()).map((p) => [p.key, p.id]));
@@ -185,8 +212,11 @@ async function main() {
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
   const plans = Object.fromEntries((await prisma.subscriptionPlan.findMany()).map((p) => [p.code, p]));
 
-  // ── Platform operator ──
-  await createUser({ email: 'admin@teamflow.test', firstName: 'Platform', lastName: 'Admin', isPlatformAdmin: true }, passwordHash);
+  // ── Platform operator: a separate identity (platform_admins), never a tenant user ──
+  // Platform sign-in emails a one-time code: set SEED_PLATFORM_ADMIN_EMAIL to a real mailbox to use it.
+  await prisma.platformAdmin.create({
+    data: { email: (process.env.SEED_PLATFORM_ADMIN_EMAIL || 'admin@teamflow.test').toLowerCase(), firstName: 'Platform', lastName: 'Admin', passwordHash },
+  });
 
   // ── Tenant 1: Abay Trading PLC (Professional) ──
   const abay = await createTenant(
@@ -296,6 +326,17 @@ async function main() {
     ],
     abayLog,
   );
+  // Branches: Head Office (default) + two branches. The Q4 marketing campaign belongs to Bole Branch.
+  const abayBranches = await createBranches(
+    abay,
+    [
+      { name: 'Bole Branch', code: 'BOLE', address: 'Bole Road, Addis Ababa', manager: 'dawit', members: ['dawit', 'yonas'], createdBy: 'abebe', createdDaysAgo: 30 },
+      { name: 'Sar Bet Branch', code: 'SARBET', address: 'Sar Bet, Addis Ababa', manager: 'sara', members: ['sara', 'hana'], createdBy: 'abebe', createdDaysAgo: 25 },
+    ],
+    abayLog,
+  );
+  await prisma.project.updateMany({ where: { organizationId: abay.org.id, name: 'Marketing Campaign Q4' }, data: { branchId: abayBranches['Bole Branch'].id } });
+
   await abayLog.flush();
 
   // ── Tenant 2: Gift Construction PLC (Free, at the 3-member limit) ──

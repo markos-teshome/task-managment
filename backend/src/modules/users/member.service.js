@@ -2,7 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError, Errors } from '../../common/errors/AppError.js';
 import { OWNER_ROLE_KEY } from '../../common/constants/permissions.js';
 import { fullName, paginate } from '../../common/utils/http.js';
-import { assertCanAddUsers } from '../subscriptions/entitlement.service.js';
+import { assertCanAddUsers, lockOrganization } from '../subscriptions/entitlement.service.js';
 import { assertWithinOwnPermissions } from '../roles/role.service.js';
 import { issueAuthToken } from '../auth/authToken.service.js';
 import { sendInvitationEmail } from '../auth/auth.emails.js';
@@ -137,6 +137,8 @@ function assertCanActOn(ctx, target) {
 
 async function assertNotLastOwner(tx, ctx, target) {
   if (target.role.key !== OWNER_ROLE_KEY) return;
+  // Serialised per organization: two owners removing each other at the same moment cannot both succeed.
+  await lockOrganization(tx, ctx.organizationId);
   const owners = await tx.membership.count({
     where: { organizationId: ctx.organizationId, status: 'ACTIVE', role: { key: OWNER_ROLE_KEY }, NOT: { id: target.id } },
   });

@@ -59,7 +59,7 @@ password **`Demo@1234`**.
 
 | Organization | Role | Email | Shows |
 |---|---|---|---|
-| — (platform) | **Super admin** | `admin@teamflow.test` | Platform console: tenants, plans/pricing, revenue |
+| — (platform) | **Super admin** | `admin@teamflow.test` (or `SEED_PLATFORM_ADMIN_EMAIL`) | Platform console at `/platform/login`: password **+ emailed code**. A `.test` address cannot receive the code, so set `SEED_PLATFORM_ADMIN_EMAIL` to a real mailbox before seeding, or create an admin with the command below |
 | Abay Trading PLC · *Professional* | **Owner** | `abebe@abaytrading.test` | Everything incl. billing, roles, custom role "QA Reviewer" |
 | | **Admin** | `sara@abaytrading.test` | Manages people & work; can view but not change billing |
 | | **Manager** | `dawit@abaytrading.test` | Projects, tasks, team workload; no subscription access |
@@ -96,6 +96,7 @@ by the seed; the seed creates **no payment records** — payments only come from
 | `CHAPA_WEBHOOK_SECRET` | The "Secret hash" registered in Chapa's dashboard (webhooks are rejected without it) |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | **Required.** SMTP account that sends verification, password-reset and invitation emails |
 | `MAIL_FROM` | Optional sender; defaults to `TeamFlow <SMTP_USER>` |
+| `SEED_PLATFORM_ADMIN_EMAIL` | Optional, seed only: the demo super admin's email (must be a real mailbox to receive the sign-in code) |
 
 The server validates its configuration on start and refuses to run with missing or invalid values.
 
@@ -189,7 +190,12 @@ after `migrate deploy` without running the seed or any manual SQL.
   success shows the receipt (plan, amount, time, reference).
 - **Dashboard:** key counts, my work, project progress, team workload, recent activity, plan usage.
 - **Activity history:** who did what, when — filterable, per project.
-- **Platform console:** organizations, suspend/reactivate, plan pricing & limits, revenue.
+- **Branches:** every organization starts with a default "Head Office"; owners and admins add branches (code, address,
+  manager, members), archive them (active projects are moved first) and change the default. Projects can belong to
+  a branch or be organization-wide; tasks follow their project. Branch limits come from the plan.
+- **Platform console (super admin):** a separate identity and sign-in (password + emailed code, 8-hour session),
+  companies (allowlisted metadata only — never projects or tasks), suspend/reactivate with a recorded reason,
+  subscriptions and renewals, payments incl. failed ones, plans and limits, operational health, audit log.
 
 ### Using the app
 
@@ -262,8 +268,9 @@ Base path `/api/v1`. All responses: `{ success, data, meta? }` or `{ success: fa
 
 | Area | Endpoints |
 |---|---|
-| Auth | `POST /auth/register · verify-email · resend-verification · login · refresh · logout · forgot-password · reset-password · accept-invitation · change-password · switch-workspace`, `GET/PATCH /auth/me`, `GET /auth/invitations/:token` |
-| Organization | `POST /organizations`, `GET/PATCH /organizations/current` |
+| Auth | `POST /auth/register · verify-email · resend-verification · login · refresh · logout · forgot-password · reset-password · accept-invitation · change-password · switch-workspace` (kept for compatibility), `GET/PATCH /auth/me`, `GET /auth/invitations/:token` |
+| Organizations | `GET /me/organizations`, `POST /organizations`, `POST /organizations/switch`, `GET/PATCH /organizations/current` |
+| Branches | `GET/POST /branches`, `GET/PATCH /branches/:id`, `POST /branches/:id/members`, `DELETE /branches/:id/members/:membershipId` |
 | Team | `GET/POST /users`, `GET /users/options`, `PATCH/DELETE /users/:id`, `POST /users/:id/resend-invitation` |
 | Roles | `GET/POST /roles`, `GET /roles/permissions`, `PATCH/DELETE /roles/:id` |
 | Projects | `GET/POST /projects`, `GET/PATCH/DELETE /projects/:id`, `POST /projects/:id/archive · restore · members`, `DELETE /projects/:id/members/:membershipId`, `GET /projects/:id/activity` |
@@ -272,7 +279,7 @@ Base path `/api/v1`. All responses: `{ success, data, meta? }` or `{ success: fa
 | Payments | `GET /payments`, `POST /payments/checkout`, `GET /payments/:txRef`, `POST /payments/:txRef/verify · cancel`, `POST /payments/webhooks/chapa` |
 | Activity / Dashboard | `GET /activities`, `GET /dashboard`, `GET /dashboard/search?q=` |
 | Invitations | `GET /auth/invitations/:token`, `POST /auth/accept-invitation` (new account: name + password; existing account: its password, or signed in as that account) |
-| Platform | `GET /platform/overview · organizations · plans · payments · audit-log`, `PATCH /platform/organizations/:id`, `POST/PATCH /platform/plans[/:id]` |
+| Platform | `POST /platform/auth/login · verify · logout`, `GET /platform/auth/me`, `GET /platform/overview · health · organizations · organizations/:id · subscriptions · plans · payments · audit-logs`, `PATCH /platform/organizations/:id/status`, `POST/PATCH /platform/plans[/:id]` — details in [STAGE1_ARCHITECTURE.md](STAGE1_ARCHITECTURE.md) |
 
 ## Testing
 
@@ -280,7 +287,7 @@ Base path `/api/v1`. All responses: `{ success, data, meta? }` or `{ success: fa
 cd backend && npm test
 ```
 
-118 integration tests run against a real PostgreSQL database and cover the business-critical scenarios
+149 integration tests run against a real PostgreSQL database and cover the business-critical scenarios
 (results: [PHASE1_BACKEND_AUDIT.md](PHASE1_BACKEND_AUDIT.md), [PHASE2_FRONTEND_QA.md](PHASE2_FRONTEND_QA.md),
 [FINAL_REQUIREMENTS_COMPLIANCE.md](FINAL_REQUIREMENTS_COMPLIANCE.md)):
 
@@ -365,9 +372,12 @@ Scripted checks run during Phase 2 (results in [PHASE2_FRONTEND_QA.md](PHASE2_FR
 - Prices are in ETB, monthly.
 - Organization names are not globally unique (different companies may share a name); one person cannot have two
   workspaces with the same name. No organization names are suggested from other tenants.
-- Super admins are provisioned only from the command line:
-  `cd backend && npm run platform-admin -- grant|revoke <email>` (or `-- list`). The account must exist and be
-  verified; every grant, revocation and console action is written to the platform audit log.
+- Super admins are a separate identity (not tenant users) and are created only from the command line, with the
+  password taken from the environment so it never lands in shell history:
+  `PLATFORM_ADMIN_PASSWORD='…' npm run platform-admin -- create <email> <first> <last>` (also `reset-password`,
+  `disable`, `enable`, `list`). Every change and every console action is written to the platform audit log.
+- Branch limits are not in the brief; assumed defaults are Free 1, Professional 5, Business unlimited (editable by the
+  platform admin).
 
 ## Known limitations
 

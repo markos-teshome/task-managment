@@ -221,7 +221,6 @@ export async function buildMe(ctx) {
       firstName: ctx.user.firstName,
       lastName: ctx.user.lastName,
       name: fullName(ctx.user),
-      isPlatformAdmin: ctx.user.isPlatformAdmin,
     },
     workspace: ctx.organizationId
       ? {

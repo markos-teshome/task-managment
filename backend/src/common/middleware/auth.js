@@ -83,9 +83,5 @@ export const requireAnyPermission =
   (req, _res, next) =>
     permissions.some((p) => req.ctx.can(p)) ? next() : next(Errors.forbidden());
 
-export function requirePlatformAdmin(req, _res, next) {
-  return req.ctx?.isPlatformAdmin ? next() : next(Errors.forbidden());
-}
-
 /** Convenience chain for tenant-scoped routes. */
 export const tenantRoute = [authenticate, requireTenant];

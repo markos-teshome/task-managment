@@ -44,7 +44,6 @@ export const PLATFORM_NAV = [
       { to: '/platform/payments', label: 'Payments', icon: Receipt },
     ],
   },
-  { label: 'Account', items: [{ to: '/platform/settings', label: 'Settings', icon: Settings }] },
 ];
 
 export const filterNav = (groups, canAny) =>

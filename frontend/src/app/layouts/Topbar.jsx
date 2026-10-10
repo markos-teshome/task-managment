@@ -5,6 +5,7 @@ import { Avatar } from '../../components/ui/Avatar.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '../../components/ui/Menu.jsx';
 import { OrganizationSwitcher } from '../../features/organizations/OrganizationSwitcher.jsx';
+import { usePlatformAdmin } from '../../features/platform/PlatformAuth.jsx';
 
 /** Platform admins have no workspace; everyone else gets the organization switcher. */
 function WorkspaceSwitcher() {
@@ -13,9 +14,14 @@ function WorkspaceSwitcher() {
   return <OrganizationSwitcher />;
 }
 
-export function Topbar({ onOpenNav, onOpenSearch, showSearch }) {
-  const { user, workspace, signOut } = useAuth();
+export function Topbar({ onOpenNav, onOpenSearch, showSearch, platform = false }) {
+  const auth = useAuth();
+  const platformSession = usePlatformAdmin();
   const navigate = useNavigate();
+  // The platform console has its own identity and session (see PlatformAuth.jsx).
+  const user = platform ? platformSession.admin : auth.user;
+  const workspace = platform ? null : auth.workspace;
+  const signOut = platform ? platformSession.signOut : () => auth.signOut().then(() => navigate('/login'));
 
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface/95 px-3 backdrop-blur sm:px-4">
@@ -55,10 +61,12 @@ export function Topbar({ onOpenNav, onOpenSearch, showSearch }) {
             {workspace && <p className="mt-1 text-xs text-ink-muted">{workspace.role.name} · {workspace.organization.name}</p>}
           </div>
           <MenuSeparator />
-          <MenuItem icon={Settings} onSelect={() => navigate('/settings')}>
-            Profile & settings
-          </MenuItem>
-          <MenuItem icon={LogOut} onSelect={() => signOut().then(() => navigate('/login'))}>
+          {!platform && (
+            <MenuItem icon={Settings} onSelect={() => navigate('/settings')}>
+              Profile & settings
+            </MenuItem>
+          )}
+          <MenuItem icon={LogOut} onSelect={signOut}>
             Sign out
           </MenuItem>
         </MenuContent>

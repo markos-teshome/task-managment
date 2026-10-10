@@ -16,7 +16,7 @@ export const PERMISSION_CATALOG = [
   { key: 'ROLE_DELETE', group: 'Roles', label: 'Delete', description: 'Delete custom roles' },
 
   { key: 'PROJECT_VIEW', group: 'Projects', label: 'View own', description: 'See projects they are a member of' },
-  { key: 'PROJECT_VIEW_ALL', group: 'Projects', label: 'View all', description: 'See every project in the organization' },
+  { key: 'PROJECT_VIEW_ALL', group: 'Projects', label: 'View all', description: 'See organization-wide projects and the projects of their branches' },
   { key: 'PROJECT_CREATE', group: 'Projects', label: 'Create', description: 'Create projects' },
   { key: 'PROJECT_UPDATE', group: 'Projects', label: 'Edit', description: 'Edit projects and their team' },
   { key: 'PROJECT_DELETE', group: 'Projects', label: 'Delete', description: 'Delete projects permanently' },
@@ -34,6 +34,9 @@ export const PERMISSION_CATALOG = [
   { key: 'BILLING_MANAGE', group: 'Billing', label: 'Manage', description: 'Make payments' },
 
   { key: 'ACTIVITY_VIEW', group: 'Activity', label: 'View', description: 'See the activity history' },
+
+  { key: 'BRANCH_VIEW', group: 'Branches', label: 'View', description: 'See every branch of the organization' },
+  { key: 'BRANCH_MANAGE', group: 'Branches', label: 'Manage', description: 'Create, edit and archive branches; work across all branches' },
 ];
 
 export const PERMISSIONS = Object.fromEntries(PERMISSION_CATALOG.map((p) => [p.key, p.key]));
@@ -64,6 +67,7 @@ export const SYSTEM_ROLES = [
       P.TASK_VIEW, P.TASK_CREATE, P.TASK_UPDATE, P.TASK_DELETE, P.TASK_ASSIGN,
       P.SUBSCRIPTION_VIEW, P.BILLING_VIEW,
       P.ACTIVITY_VIEW,
+      P.BRANCH_VIEW, P.BRANCH_MANAGE,
     ],
   },
   {
@@ -75,6 +79,7 @@ export const SYSTEM_ROLES = [
       P.PROJECT_VIEW, P.PROJECT_VIEW_ALL, P.PROJECT_CREATE, P.PROJECT_UPDATE,
       P.TASK_VIEW, P.TASK_CREATE, P.TASK_UPDATE, P.TASK_DELETE, P.TASK_ASSIGN,
       P.ACTIVITY_VIEW,
+      P.BRANCH_VIEW,
     ],
   },
   {

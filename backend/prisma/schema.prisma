@@ -36,6 +36,16 @@ enum OrganizationStatus {
   SUSPENDED
 }
 
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PlatformAdminStatus {
+  ACTIVE
+  DISABLED
+}
+
 enum MembershipStatus {
   INVITED
   ACTIVE
@@ -100,7 +110,6 @@ model User {
   firstName           String
   lastName            String
   status              UserStatus @default(ACTIVE)
-  isPlatformAdmin     Boolean    @default(false)
   emailVerifiedAt     DateTime?
   failedLoginAttempts Int        @default(0)
   lockedUntil         DateTime?
@@ -108,10 +117,9 @@ model User {
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
 
-  memberships       Membership[]
-  sessions          Session[]
-  authTokens        AuthToken[]
-  platformAuditLogs PlatformAuditLog[]
+  memberships Membership[]
+  sessions    Session[]
+  authTokens  AuthToken[]
 
   @@map("users")
 }
@@ -168,6 +176,7 @@ model Organization {
 
   memberships  Membership[]
   roles        Role[]
+  branches     Branch[]
   projects     Project[]
   tasks        Task[]
   subscription Subscription?
@@ -197,6 +206,9 @@ model Membership {
   invitedBy    Membership?  @relation("MembershipInviter", fields: [invitedById], references: [id], onDelete: SetNull)
   invited      Membership[] @relation("MembershipInviter")
 
+  branchMemberships BranchMembership[]
+  managedBranches   Branch[]           @relation("BranchManager")
+
   sessions           Session[]
   authTokens         AuthToken[]
   projectMemberships ProjectMember[]
@@ -212,6 +224,55 @@ model Membership {
   @@index([userId])
   @@index([organizationId, status])
   @@map("memberships")
+}
+
+// ───────────────────────────── Branches ─────────────────────────────
+
+/// A branch is a part of one organization (Head Office, Bole Branch …), never a tenant of its own.
+/// Every organization has exactly one default branch (partial unique index in the migration).
+/// Branches are archived (INACTIVE), never deleted, so projects and history keep their reference.
+/// Database-level consistency added in the migration (Prisma cannot express it):
+///   (managerId, organizationId) → memberships(id, organizationId): the manager is a member of the same organization.
+model Branch {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  name           String
+  code           String? // optional short code, unique within the organization
+  description    String?
+  address        String? // free-form location, optional
+  status         BranchStatus @default(ACTIVE)
+  isDefault      Boolean      @default(false)
+  managerId      String?      @db.Uuid
+  archivedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  manager      Membership?        @relation("BranchManager", fields: [managerId], references: [id], onDelete: SetNull)
+  members      BranchMembership[]
+  projects     Project[]
+
+  @@unique([organizationId, name])
+  @@unique([organizationId, code])
+  @@unique([id, organizationId])
+  @@index([organizationId, status])
+  @@map("branches")
+}
+
+/// A person (membership) in a branch. Both composite FKs share organizationId, so the database refuses a
+/// branch member from another organization.
+model BranchMembership {
+  branchId       String   @db.Uuid
+  membershipId   String   @db.Uuid
+  organizationId String   @db.Uuid
+  createdAt      DateTime @default(now())
+
+  branch     Branch     @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  membership Membership @relation(fields: [membershipId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@id([branchId, membershipId])
+  @@index([membershipId])
+  @@map("branch_memberships")
 }
 
 // ─────────────────────────── Access control ───────────────────────────
@@ -273,6 +334,7 @@ model Project {
   startDate      DateTime?     @db.Date
   dueDate        DateTime?     @db.Date
   leadId         String?       @db.Uuid // responsible person (a membership of the same org)
+  branchId       String?       @db.Uuid // null = organization-wide project
   createdById    String?       @db.Uuid
   archivedAt     DateTime?
   createdAt      DateTime      @default(now())
@@ -280,6 +342,9 @@ model Project {
 
   organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   lead         Membership?     @relation("ProjectLead", fields: [leadId], references: [id], onDelete: SetNull)
+  // Plus a composite FK (branchId, organizationId) → branches(id, organizationId) added in the migration:
+  // a project can only be placed in a branch of its own organization.
+  branch       Branch?         @relation(fields: [branchId], references: [id], onDelete: NoAction)
   createdBy    Membership?     @relation("ProjectCreator", fields: [createdById], references: [id], onDelete: SetNull)
   members      ProjectMember[] // the responsible team
   tasks        Task[]
@@ -288,6 +353,7 @@ model Project {
   @@unique([id, organizationId])
   @@index([organizationId, status])
   @@index([organizationId, archivedAt])
+  @@index([branchId])
   @@map("projects")
 }
 
@@ -347,6 +413,7 @@ model SubscriptionPlan {
   currency    String   @default("ETB")
   maxUsers    Int?
   maxProjects Int?
+  maxBranches Int? // active branches incl. the default one; null = unlimited
   features    String[] @default([])
   isActive    Boolean  @default(true)
   sortOrder   Int      @default(0)
@@ -428,8 +495,67 @@ model ActivityLog {
   @@map("activity_logs")
 }
 
-/// Actions taken by platform administrators (TeamFlow operators), who act outside any tenant.
-/// Append-only. Never put secrets, tokens or passwords in `metadata`.
+// ─────────────────────────── Platform (TeamFlow operators) ───────────────────────────
+
+/// TeamFlow's own operators. A separate identity from tenant users: no memberships, no tenant sessions,
+/// so platform authority can never carry into tenant APIs. Created only by the command line
+/// (scripts/platform-admin.js). Sign-in requires password + an emailed one-time code.
+model PlatformAdmin {
+  id                  String              @id @default(uuid()) @db.Uuid
+  email               String              @unique
+  firstName           String
+  lastName            String
+  passwordHash        String
+  status              PlatformAdminStatus @default(ACTIVE)
+  failedLoginAttempts Int                 @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  sessions   PlatformSession[]
+  challenges PlatformLoginChallenge[]
+  auditLogs  PlatformAuditLog[]
+
+  @@map("platform_admins")
+}
+
+/// Short-lived platform session (8 h absolute, 30 min idle), held in an httpOnly cookie scoped to /api/v1/platform.
+model PlatformSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  adminId    String    @db.Uuid
+  secretHash String
+  expiresAt  DateTime
+  lastUsedAt DateTime  @default(now())
+  revokedAt  DateTime?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+
+  admin PlatformAdmin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@map("platform_sessions")
+}
+
+/// Second factor: a 6-digit code emailed after a correct password. Hashed, 10 minutes, 5 attempts, single use.
+model PlatformLoginChallenge {
+  id        String    @id @default(uuid()) @db.Uuid
+  adminId   String    @db.Uuid
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int       @default(0)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  admin PlatformAdmin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@map("platform_login_challenges")
+}
+
+/// Actions taken by platform administrators. Append-only. actorId null = command line.
+/// Never put secrets, tokens or passwords in `metadata`.
 model PlatformAuditLog {
   id         String   @id @default(uuid()) @db.Uuid
   actorId    String?  @db.Uuid
@@ -437,10 +563,12 @@ model PlatformAuditLog {
   targetType String
   targetId   String?  @db.Uuid
   metadata   Json?
+  ipAddress  String?
   createdAt  DateTime @default(now())
 
-  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actor PlatformAdmin? @relation(fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([createdAt])
+  @@index([targetType, targetId])
   @@map("platform_audit_logs")
 }

@@ -27,7 +27,6 @@ export async function loadSessionContext(sessionId) {
     session,
     userId: user.id,
     user,
-    isPlatformAdmin: user.isPlatformAdmin,
     // Tenant fields stay null unless the workspace is usable right now.
     membershipId: null,
     organizationId: null,

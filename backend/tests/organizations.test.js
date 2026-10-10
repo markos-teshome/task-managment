@@ -99,3 +99,85 @@ describe('switching between organizations', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('one person, several organizations', () => {
+  it('the same account owns two companies, each with its own subscription, default branch and data; nothing is duplicated', async () => {
+    const second = await as(owner).post('/organizations').send({ name: 'Gift Construction PLC' });
+    expect(second.status).toBe(201);
+    expect(await prisma.user.count({ where: { email: A.owner.user.email } })).toBe(1);
+
+    const orgs = await prisma.organization.findMany({ where: { memberships: { some: { userId: A.owner.user.id } } }, include: { subscription: true, branches: true } });
+    expect(orgs).toHaveLength(2);
+    expect(new Set(orgs.map((o) => o.subscription.id)).size).toBe(2);
+    expect(orgs.every((o) => o.branches.length === 1 && o.branches[0].isDefault && o.branches[0].name === 'Head Office')).toBe(true);
+    const created = await prisma.activityLog.findFirst({ where: { organizationId: second.body.data.me.workspace.organization.id, action: 'ORGANIZATION_CREATED' } });
+    expect(created).not.toBeNull();
+  });
+
+  it('GET /me/organizations lists only the caller\'s organizations and marks the active one', async () => {
+    const B = await createTenant({ name: 'Unrelated Co' }); // someone else's company
+    const second = await as(owner).post('/organizations').send({ name: 'Second Org' });
+    const token = second.body.data.accessToken;
+
+    const res = await as(token).get('/me/organizations');
+    expect(res.status).toBe(200);
+    expect(res.body.data.organizations.map((o) => o.organization.name).sort()).toEqual(['Abay Trading PLC', 'Second Org']);
+    expect(res.body.data.organizations.find((o) => o.isActive).organization.name).toBe('Second Org');
+    expect(res.body.data.activeOrganizationId).toBe(second.body.data.me.workspace.organization.id);
+    expect(JSON.stringify(res.body)).not.toContain(B.org.id);
+  });
+
+  it('POST /organizations/switch changes the security context; another tenant\'s organization id is refused', async () => {
+    const B = await createTenant({ name: 'Unrelated Co' });
+    await as(owner).post('/organizations').send({ name: 'Second Org' });
+
+    const refused = await as(owner).post('/organizations/switch').send({ organizationId: B.org.id });
+    expect(refused.status).toBe(404);
+
+    const res = await as(owner).post('/organizations/switch').send({ organizationId: A.org.id });
+    expect(res.status).toBe(200);
+    expect(res.body.data.me.workspace.organization.name).toBe('Abay Trading PLC');
+    expect(res.body.data.me.workspace.role.key).toBe('OWNER');
+  });
+
+  it('a person can be Owner in one company and Employee in another, with different permissions', async () => {
+    const B = await createTenant({ name: 'Gift Construction PLC' });
+    await prisma.membership.create({ data: { organizationId: B.org.id, userId: A.owner.user.id, roleId: B.roles.EMPLOYEE.id, status: 'ACTIVE', joinedAt: new Date() } });
+    const res = await as(owner).post('/organizations/switch').send({ organizationId: B.org.id });
+    const token = res.body.data.accessToken;
+    expect(res.body.data.me.workspace.role.key).toBe('EMPLOYEE');
+    expect((await as(token).get('/billing')).status).toBe(404); // no such route either way
+    expect((await as(token).get('/payments')).status).toBe(403); // employee: no billing in this company
+    expect((await as(token).post('/projects').send({ name: 'x' })).status).toBe(403);
+  });
+});
+
+describe('several owners, never zero', () => {
+  let T, first, second;
+  beforeEach(async () => {
+    T = await createTenant({ name: 'Owners Co', members: [{ key: 'second', role: 'OWNER' }] });
+    first = await login(T.owner.user.email);
+    second = await login(T.members.second.user.email);
+  });
+
+  it('an organization can have several owners, and one owner may remove another while one remains', async () => {
+    expect(await prisma.membership.count({ where: { organizationId: T.org.id, status: 'ACTIVE', role: { key: 'OWNER' } } })).toBe(2);
+    expect((await as(first).delete(`/users/${T.members.second.membership.id}`)).status).toBe(200);
+    expect(await prisma.membership.count({ where: { organizationId: T.org.id, status: 'ACTIVE', role: { key: 'OWNER' } } })).toBe(1);
+  });
+
+  it('the final owner can neither leave nor be demoted by themselves', async () => {
+    await as(first).delete(`/users/${T.members.second.membership.id}`);
+    expect((await as(first).delete(`/users/${T.owner.membership.id}`)).status).toBe(403);
+    expect((await as(first).patch(`/users/${T.owner.membership.id}`).send({ roleId: T.roles.ADMIN.id })).status).toBe(403);
+  });
+
+  it('two owners removing each other at the same moment never leave the organization without an owner', async () => {
+    const results = await Promise.all([
+      as(first).delete(`/users/${T.members.second.membership.id}`),
+      as(second).delete(`/users/${T.owner.membership.id}`),
+    ]);
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(await prisma.membership.count({ where: { organizationId: T.org.id, status: 'ACTIVE', role: { key: 'OWNER' } } })).toBe(1);
+  });
+});

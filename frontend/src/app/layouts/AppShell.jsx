@@ -92,7 +92,7 @@ export function AppShell({ platform = false }) {
       </RD.Root>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar onOpenNav={() => setNavOpen(true)} onOpenSearch={() => setSearchOpen(true)} showSearch={!platform && !!workspace} />
+        <Topbar platform={platform} onOpenNav={() => setNavOpen(true)} onOpenSearch={() => setSearchOpen(true)} showSearch={!platform && !!workspace} />
         <main id="main" className="mx-auto w-full max-w-[1400px] flex-1 px-3 py-4 sm:px-6 sm:py-5">
           <Suspense fallback={<PageLoader />}>
             <Outlet />

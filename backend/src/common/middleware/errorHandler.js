@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { AppError, Errors } from '../errors/AppError.js';
+import { recordInternalError } from '../../lib/errorLog.js';
 
 export function notFoundHandler(req, _res, next) {
   next(new AppError(404, 'ROUTE_NOT_FOUND', `Route ${req.method} ${req.path} does not exist.`));
@@ -24,6 +25,8 @@ export function errorHandler(err, req, res, _next) {
   if (!error) {
     // Unexpected: log full detail server-side, return a generic message.
     req.log?.error({ err }, 'Unhandled error');
+    // Route pattern (e.g. /api/v1/projects/:id), not the URL: ids and query strings stay out of the record.
+    recordInternalError({ method: req.method, route: `${req.baseUrl}${req.route?.path ?? ''}`, name: err?.name, requestId: req.id });
     error = new AppError(500, 'INTERNAL_ERROR', 'Something went wrong on our side. Please try again.');
   }
 

@@ -35,7 +35,7 @@ export async function getDashboard(ctx) {
     canSeeProjects
       ? listProjects(ctx, { page: 1, pageSize: 6, archived: false, sort: 'dueDate', order: 'asc', openOnly: true }).then((r) => r.items)
       : null,
-    ctx.can('ACTIVITY_VIEW') ? recentActivities(ctx.organizationId, { take: 8 }) : null,
+    ctx.can('ACTIVITY_VIEW') ? recentActivities(ctx, { take: 8 }) : null,
     ctx.can('PROJECT_VIEW_ALL') && canSeeTasks ? teamWorkload(ctx) : null,
     ctx.can('SUBSCRIPTION_VIEW') ? getEntitlementSummary(ctx.organizationId) : null,
   ]);

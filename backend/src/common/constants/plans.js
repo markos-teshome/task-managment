@@ -5,6 +5,9 @@ export const FEATURES = {
 
 export const FREE_PLAN_CODE = 'FREE';
 
+/** Name of the branch every organization starts with. */
+export const DEFAULT_BRANCH_NAME = 'Head Office';
+
 /** Billing period for paid plans. Monthly only — kept deliberately simple. */
 export const BILLING_PERIOD_DAYS = 30;
 
@@ -20,6 +23,8 @@ export const DEFAULT_PLANS = [
     priceCents: 0,
     maxUsers: 3,
     maxProjects: 3,
+    // Branch limits are not in the brief: assumed defaults, editable by the platform admin.
+    maxBranches: 1,
     features: [],
     sortOrder: 1,
   },
@@ -30,6 +35,7 @@ export const DEFAULT_PLANS = [
     priceCents: 1500_00,
     maxUsers: 15,
     maxProjects: 25,
+    maxBranches: 5,
     features: [],
     sortOrder: 2,
   },
@@ -40,6 +46,7 @@ export const DEFAULT_PLANS = [
     priceCents: 4500_00,
     maxUsers: null,
     maxProjects: null,
+    maxBranches: null,
     features: [FEATURES.DATA_EXPORT],
     sortOrder: 3,
   },

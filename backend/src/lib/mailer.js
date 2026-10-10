@@ -17,15 +17,20 @@ const smtp = config.isTest
       auth: { user: config.SMTP_USER, pass: config.SMTP_PASS },
     });
 
+/** Last start-up check, shown in the platform health view. */
+export const mailerStatus = { verified: null, checkedAt: null };
+
 /** Checks the SMTP connection and credentials (run at start-up). */
 export async function verifyMailer() {
   if (!smtp) return true;
   try {
     await smtp.verify();
     logger.info({ host: config.SMTP_HOST }, 'SMTP connection verified');
+    Object.assign(mailerStatus, { verified: true, checkedAt: new Date() });
     return true;
   } catch (err) {
     logger.error({ err: err.message, host: config.SMTP_HOST }, 'SMTP connection failed — emails cannot be sent');
+    Object.assign(mailerStatus, { verified: false, checkedAt: new Date() });
     return false;
   }
 }

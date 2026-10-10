@@ -30,20 +30,24 @@ export async function getEffectivePlan(organizationId, db = prisma) {
   return { plan, subscription, isFallback: true };
 }
 
-/** Seats include pending invitations: an invitation reserves a seat until it is accepted or revoked. */
+/**
+ * Usage counted against the plan, always for the whole organization (branches share its limits).
+ * Seats include pending invitations: an invitation reserves a seat until it is accepted or revoked.
+ */
 export async function getUsage(organizationId, db = prisma) {
-  const [users, projects] = await Promise.all([
+  const [users, projects, branches] = await Promise.all([
     db.membership.count({ where: { organizationId, status: { in: ['ACTIVE', 'INVITED'] } } }),
     db.project.count({ where: { organizationId, archivedAt: null } }),
+    db.branch.count({ where: { organizationId, status: 'ACTIVE' } }),
   ]);
-  return { users, projects };
+  return { users, projects, branches };
 }
 
 /**
  * Serialises quota checks per organization. Without this lock two concurrent invitations
  * could both see "2 of 3 used" and both succeed. Must be called inside a transaction.
  */
-async function lockOrganization(tx, organizationId) {
+export async function lockOrganization(tx, organizationId) {
   await tx.$queryRaw`SELECT id FROM "organizations" WHERE id = ${organizationId}::uuid FOR UPDATE`;
 }
 
@@ -65,6 +69,18 @@ export async function assertCanCreateProject(tx, organizationId) {
     throw Errors.planLimit(
       'SUBSCRIPTION_PROJECT_LIMIT',
       `Your current plan has reached its project limit (${usage.projects} of ${plan.maxProjects} active projects). Archive a project or upgrade your subscription.`,
+    );
+  }
+}
+
+/** For creating or reactivating a branch. The default branch counts towards the limit. */
+export async function assertCanAddBranch(tx, organizationId) {
+  await lockOrganization(tx, organizationId);
+  const [{ plan }, usage] = await Promise.all([getEffectivePlan(organizationId, tx), getUsage(organizationId, tx)]);
+  if (plan.maxBranches !== null && usage.branches + 1 > plan.maxBranches) {
+    throw Errors.planLimit(
+      'SUBSCRIPTION_BRANCH_LIMIT',
+      `Your current plan has reached its branch limit (${usage.branches} of ${plan.maxBranches} active branches). Archive a branch or upgrade your subscription.`,
     );
   }
 }
@@ -105,6 +121,7 @@ export async function getEntitlementSummary(organizationId) {
       name: plan.name,
       maxUsers: plan.maxUsers,
       maxProjects: plan.maxProjects,
+      maxBranches: plan.maxBranches,
       features: plan.features,
     },
     usage,

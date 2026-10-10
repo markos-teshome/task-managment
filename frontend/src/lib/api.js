@@ -80,7 +80,8 @@ export function refreshSession() {
 }
 
 async function send(path, { method = 'GET', body, query, signal, retry = true, withMeta = false, raw = false } = {}) {
-  const headers = { Accept: 'application/json' };
+  // X-TeamFlow-Client: a custom header cross-site forms cannot send; the platform API requires it on writes.
+  const headers = { Accept: 'application/json', 'X-TeamFlow-Client': 'web' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   if (workspaceId) headers['X-Workspace-Id'] = workspaceId;

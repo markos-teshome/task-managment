@@ -73,12 +73,14 @@ export function PlatformOrganizationsPage() {
     placeholderData: keepPreviousData,
   });
   const [confirm, setConfirm] = useState(null);
+  const [reason, setReason] = useState('');
   const setStatus = useMutation({
-    mutationFn: ({ id, status }) => api.patch(`/platform/organizations/${id}`, { status }),
+    mutationFn: ({ id, status, reason: why }) => api.patch(`/platform/organizations/${id}/status`, { status, ...(why && { reason: why }) }),
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ['platform'] });
       toast.success(v.status === 'SUSPENDED' ? 'Organization suspended' : 'Organization reactivated');
       setConfirm(null);
+      setReason('');
     },
     onError: (err) => toast.error(err.message),
   });
@@ -87,8 +89,8 @@ export function PlatformOrganizationsPage() {
     { key: 'name', header: 'Organization', className: 'w-auto', cell: (o) => <div><p className="font-medium">{o.name}</p><p className="text-xs text-ink-subtle">Since {formatLongDate(o.createdAt)}</p></div> },
     { key: 'plan', header: 'Plan', className: 'w-32', cell: (o) => <Badge tone="brand">{o.plan?.name ?? '—'}</Badge> },
     { key: 'sub', header: 'Subscription', className: 'w-36', hideBelow: 'lg', cell: (o) => <StatusBadge map={SUBSCRIPTION_STATUS} value={o.subscriptionStatus} /> },
-    { key: 'members', header: 'Members', className: 'w-24 text-right', headerClassName: 'w-24 text-right', cell: (o) => <span className="tabular-nums">{o.members}</span> },
-    { key: 'projects', header: 'Projects', className: 'w-24 text-right', headerClassName: 'w-24 text-right', cell: (o) => <span className="tabular-nums">{o.projects}</span> },
+    { key: 'members', header: 'Members', className: 'w-24 text-right', headerClassName: 'w-24 text-right', cell: (o) => <span className="tabular-nums">{o.activeMembers}</span> },
+    { key: 'branches', header: 'Branches', className: 'w-24 text-right', headerClassName: 'w-24 text-right', cell: (o) => <span className="tabular-nums">{o.activeBranches}</span> },
     { key: 'status', header: 'Status', className: 'w-28', cell: (o) => <StatusBadge map={ORG_STATUS} value={o.status} /> },
     {
       key: 'actions',
@@ -132,7 +134,7 @@ export function PlatformOrganizationsPage() {
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-medium">{o.name}</p>
-                  <p className="text-xs text-ink-subtle">{o.plan?.name} · {o.members} members · {o.projects} projects</p>
+                  <p className="text-xs text-ink-subtle">{o.plan?.name} · {o.activeMembers} members · {o.activeBranches} branches</p>
                 </div>
                 <div className="flex items-center gap-1">
                   <StatusBadge map={ORG_STATUS} value={o.status} />
@@ -151,8 +153,12 @@ export function PlatformOrganizationsPage() {
         description="All of its members lose access on their next request until the organization is reactivated. No data is deleted."
         confirmLabel="Suspend"
         loading={setStatus.isPending}
-        onConfirm={() => setStatus.mutate({ id: confirm.id, status: 'SUSPENDED' })}
-      />
+        onConfirm={() => reason.trim() && setStatus.mutate({ id: confirm.id, status: 'SUSPENDED', reason: reason.trim() })}
+      >
+        <Field label="Reason (recorded in the platform audit log)" required>
+          <Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} placeholder="e.g. Unpaid invoices" />
+        </Field>
+      </ConfirmDialog>
     </>
   );
 }

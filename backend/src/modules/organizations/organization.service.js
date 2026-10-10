@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { Errors } from '../../common/errors/AppError.js';
-import { FREE_PLAN_CODE } from '../../common/constants/plans.js';
+import { DEFAULT_BRANCH_NAME, FREE_PLAN_CODE } from '../../common/constants/plans.js';
 import { randomToken } from '../../common/utils/crypto.js';
 import { slugify } from '../../common/utils/http.js';
 import { createSystemRoles } from '../roles/role.service.js';
@@ -14,8 +14,9 @@ async function uniqueSlug(tx, name) {
 }
 
 /**
- * Creates a tenant atomically: organization, default roles, the creator as Owner and a
- * Free subscription. Either all of it exists or none of it does.
+ * Creates a tenant atomically: organization, default roles, the creator as Owner, its default branch,
+ * a Free subscription and the audit entry. Either all of it exists or none of it does.
+ * The same person can own several organizations; their user account is never duplicated.
  */
 export async function createOrganization(userId, { name }) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -45,6 +46,7 @@ export async function createOrganization(userId, { name }) {
         joinedAt: new Date(),
       },
     });
+    await tx.branch.create({ data: { organizationId: organization.id, name: DEFAULT_BRANCH_NAME, isDefault: true } });
     await tx.subscription.create({
       data: { organizationId: organization.id, planId: freePlan.id, status: 'ACTIVE', currentPeriodEnd: null },
     });
@@ -58,6 +60,38 @@ export async function createOrganization(userId, { name }) {
     });
     return { organization, membership };
   });
+}
+
+/**
+ * The caller's organizations: only their own active memberships in active organizations, with their role
+ * there. Nothing about any other tenant. `activeOrganizationId` is the session's current workspace.
+ */
+export async function listMyOrganizations(ctx) {
+  const memberships = await prisma.membership.findMany({
+    where: { userId: ctx.userId, status: 'ACTIVE', organization: { status: 'ACTIVE' } },
+    select: { id: true, organization: { select: { id: true, name: true } }, role: { select: { key: true, name: true } } },
+    orderBy: { joinedAt: 'asc' },
+  });
+  return {
+    activeOrganizationId: ctx.organizationId,
+    activeMembershipId: ctx.membershipId,
+    organizations: memberships.map((m) => ({
+      membershipId: m.id,
+      organization: m.organization,
+      role: m.role,
+      isActive: m.id === ctx.membershipId,
+    })),
+  };
+}
+
+/** Resolves the caller's own active membership in an organization (404 for anything else). */
+export async function membershipFor(ctx, organizationId) {
+  const membership = await prisma.membership.findFirst({
+    where: { organizationId, userId: ctx.userId, status: 'ACTIVE', organization: { status: 'ACTIVE' } },
+    select: { id: true },
+  });
+  if (!membership) throw Errors.notFound('Organization');
+  return membership.id;
 }
 
 export async function getCurrentOrganization(ctx) {

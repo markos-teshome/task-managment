@@ -3,18 +3,33 @@ import { Errors } from '../../common/errors/AppError.js';
 import { fullName, paginate, startOfTodayUtc } from '../../common/utils/http.js';
 import { assertCanCreateProject } from '../subscriptions/entitlement.service.js';
 import { resolveActiveMembers } from '../users/member.service.js';
+import { assertBranchUsable } from '../branches/branch.service.js';
 import { ACTIONS, logActivity } from '../activities/activity.service.js';
 
 /**
- * Visibility rule, used by every project/task query:
- *  - PROJECT_VIEW_ALL → every project of the organization;
- *  - otherwise → only projects where the caller is on the team.
- * Always combined with the caller's organizationId.
+ * Visibility rule, used by every project/task/activity query (tasks inherit it from their project):
+ *  - PROJECT_VIEW_ALL + BRANCH_MANAGE → every project of the organization;
+ *  - PROJECT_VIEW_ALL → organization-wide projects, projects of branches the caller belongs to or manages,
+ *    and projects whose team they are on;
+ *  - otherwise → only projects whose team the caller is on (wherever the project lives).
+ * Always combined with the caller's organizationId. The scope sits under AND so a caller's own filters
+ * (e.g. a search OR) can never replace it.
  */
 export function visibleProjectsWhere(ctx) {
-  const where = { organizationId: ctx.organizationId };
-  if (!ctx.can('PROJECT_VIEW_ALL')) where.members = { some: { membershipId: ctx.membershipId } };
-  return where;
+  const onTeam = { members: { some: { membershipId: ctx.membershipId } } };
+  let scope = null;
+  if (!ctx.can('PROJECT_VIEW_ALL')) scope = onTeam;
+  else if (!ctx.can('BRANCH_MANAGE')) {
+    scope = {
+      OR: [
+        { branchId: null },
+        { branch: { members: { some: { membershipId: ctx.membershipId } } } },
+        { branch: { managerId: ctx.membershipId } },
+        onTeam,
+      ],
+    };
+  }
+  return { organizationId: ctx.organizationId, ...(scope && { AND: [scope] }) };
 }
 
 const personSelect = { id: true, status: true, user: { select: { firstName: true, lastName: true } } };
@@ -22,6 +37,7 @@ const presentPerson = (m) => (m ? { id: m.id, name: fullName(m.user), status: m.
 
 const listInclude = {
   lead: { select: personSelect },
+  branch: { select: { id: true, name: true, status: true } },
   members: { select: { membership: { select: personSelect } }, orderBy: { createdAt: 'asc' } },
 };
 
@@ -64,6 +80,7 @@ function present(project, stats) {
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     lead: presentPerson(project.lead),
+    branch: project.branch ?? null, // null = organization-wide
     members: project.members.map((pm) => presentPerson(pm.membership)),
     stats: stats ?? { total: 0, completed: 0, inProgress: 0, blocked: 0, overdue: 0, progress: 0 },
   };
@@ -86,6 +103,7 @@ export async function listProjects(ctx, query) {
     ...(query.openOnly && !query.status && { status: { notIn: ['COMPLETED', 'CANCELLED'] } }),
     ...(query.priority && { priority: query.priority }),
     ...(query.leadId && { leadId: query.leadId }),
+    ...(query.branchId && { branchId: query.branchId === 'none' ? null : query.branchId }),
     ...(query.search && {
       OR: [
         { name: { contains: query.search, mode: 'insensitive' } },
@@ -135,6 +153,7 @@ export async function createProject(ctx, data) {
   const project = await prisma.$transaction(async (tx) => {
     await assertCanCreateProject(tx, ctx.organizationId);
     await assertNameAvailable(tx, ctx.organizationId, fields.name);
+    if (fields.branchId) await assertBranchUsable(tx, ctx, fields.branchId);
 
     // Team = chosen members + the lead + the creator when they could not otherwise see it.
     const teamIds = new Set(memberIds);
@@ -172,6 +191,7 @@ export async function updateProject(ctx, id, data) {
 
   await prisma.$transaction(async (tx) => {
     if (data.name && data.name !== current.name) await assertNameAvailable(tx, ctx.organizationId, data.name, id);
+    if (data.branchId && data.branchId !== current.branchId) await assertBranchUsable(tx, ctx, data.branchId);
     if (data.leadId) {
       await resolveActiveMembers(tx, ctx.organizationId, [data.leadId], 'leadId');
       await tx.projectMember.upsert({

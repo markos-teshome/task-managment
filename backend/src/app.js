@@ -9,7 +9,8 @@ import { prisma } from './lib/prisma.js';
 import { errorHandler, notFoundHandler } from './common/middleware/errorHandler.js';
 
 import authRoutes from './modules/auth/auth.routes.js';
-import organizationRoutes from './modules/organizations/organization.routes.js';
+import organizationRoutes, { meRouter } from './modules/organizations/organization.routes.js';
+import branchRoutes from './modules/branches/branch.routes.js';
 import memberRoutes from './modules/users/member.routes.js';
 import roleRoutes from './modules/roles/role.routes.js';
 import projectRoutes from './modules/projects/project.routes.js';
@@ -47,7 +48,9 @@ export function createApp() {
 
   const api = express.Router();
   api.use('/auth', authRoutes);
+  api.use('/me', meRouter);
   api.use('/organizations', organizationRoutes);
+  api.use('/branches', branchRoutes);
   api.use('/users', memberRoutes);
   api.use('/roles', roleRoutes);
   api.use('/projects', projectRoutes);

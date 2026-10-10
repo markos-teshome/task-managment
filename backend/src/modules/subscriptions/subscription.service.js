@@ -14,6 +14,7 @@ export const presentPlan = (p) => ({
   currency: p.currency,
   maxUsers: p.maxUsers,
   maxProjects: p.maxProjects,
+  maxBranches: p.maxBranches,
   features: p.features,
 });
 
@@ -39,6 +40,9 @@ export async function assertPlanFitsUsage(organizationId, plan) {
   }
   if (plan.maxProjects !== null && usage.projects > plan.maxProjects) {
     problems.push(`${usage.projects} active projects (limit ${plan.maxProjects})`);
+  }
+  if (plan.maxBranches !== null && usage.branches > plan.maxBranches) {
+    problems.push(`${usage.branches} active branches (limit ${plan.maxBranches})`);
   }
   if (problems.length) {
     throw Errors.conflict(

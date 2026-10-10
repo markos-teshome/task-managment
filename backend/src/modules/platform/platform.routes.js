@@ -138,7 +138,14 @@ router.patch('/plans/:id', validate({ params: idParam, body: updatePlanBody }), 
 
 router.get(
   '/payments',
-  validate({ query: z.object({ ...pagination, status: z.enum(['PENDING', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED']).optional(), organizationId: id.optional() }) }),
+  validate({
+    query: z.object({
+      ...pagination,
+      search: searchTerm,
+      status: z.enum(['PENDING', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED']).optional(),
+      organizationId: id.optional(),
+    }),
+  }),
   async (req, res) => {
     const { items, meta } = await platform.listPayments(req.valid.query);
     ok(res, items, meta);

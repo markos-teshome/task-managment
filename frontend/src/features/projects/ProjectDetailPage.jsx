@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { Archive, ArchiveRestore, ArrowLeft, Calendar, Crown, ListChecks, MoreHorizontal, Pencil, Plus, SearchX, Trash2, UserPlus, Users, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, Calendar, Crown, ListChecks, MapPin, MoreHorizontal, Pencil, Plus, SearchX, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import { useAddProjectMembers, useArchiveProject, useDeleteProject, useProject, useProjectActivity, useRemoveProjectMember } from './api.js';
@@ -111,6 +111,12 @@ function ProjectWorkspace({ project }) {
             <h1 className="text-lg font-semibold tracking-tight sm:text-xl">{project.name}</h1>
             <StatusBadge map={PROJECT_STATUS} value={project.status} />
             <PriorityLabel map={PRIORITY} value={project.priority} />
+            {project.branch && (
+              <Link to={`/branches/${project.branch.id}`} className="inline-flex items-center gap-1 text-xs text-ink-muted hover:text-brand-700">
+                <MapPin size={12} aria-hidden="true" />
+                {project.branch.name}
+              </Link>
+            )}
           </div>
           {project.description && <p className="mt-1 max-w-3xl text-[13px] text-ink-muted">{project.description}</p>}
         </div>

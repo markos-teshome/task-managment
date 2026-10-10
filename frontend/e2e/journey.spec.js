@@ -39,7 +39,12 @@ test('a new company goes from sign-up to a paid plan', async ({ page, browser })
   await page.getByLabel('Organization name').fill(company);
   await page.getByRole('button', { name: 'Create organization' }).click();
   await expect(page.getByText(`Here's what's happening at ${company}.`)).toBeVisible();
-  await expect(page.getByRole('button', { name: new RegExp(`${company}.*Switch organization`) })).toBeVisible();
+  // One company: a plain identity, no dropdown; its default branch and Free plan exist.
+  await expect(page.getByRole('banner').getByText(company)).toBeVisible();
+  await expect(page.getByRole('button', { name: /Switch organization/ })).toHaveCount(0);
+  await expect(page.getByText('Free plan', { exact: true }).first()).toBeVisible();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Branches' }).click();
+  await expect(page.getByRole('table').getByText('Head Office')).toBeVisible();
   const slug = (await prisma.organization.findFirst({ where: { name: company } })).slug;
 
   // 3. Invite a member and review before sending.
@@ -78,6 +83,7 @@ test('a new company goes from sign-up to a paid plan', async ({ page, browser })
   const projectDialog = page.getByRole('dialog', { name: 'New project' });
   await projectDialog.getByLabel('Project name').fill('Warehouse Launch');
   await projectDialog.getByLabel('Status').selectOption('ACTIVE');
+  await expect(projectDialog.getByLabel('Branch')).toHaveCount(0); // only the head office: no branch choice
   await projectDialog.getByRole('button', { name: 'Create project' }).click();
   await expect(page.getByRole('heading', { name: 'Warehouse Launch' })).toBeVisible();
   await page.getByRole('tab', { name: /Tasks/ }).click();
@@ -96,7 +102,7 @@ test('a new company goes from sign-up to a paid plan', async ({ page, browser })
   await other.close();
 
   // 8. The owner's dashboard reflects it.
-  await page.getByRole('link', { name: 'Dashboard' }).click();
+  await page.getByRole('link', { name: 'Overview' }).click();
   await expect(page.getByRole('link', { name: /Warehouse Launch/ }).first()).toBeVisible();
   await expect(page.getByText('100%').first()).toBeVisible();
 

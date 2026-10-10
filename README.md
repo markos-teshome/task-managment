@@ -201,8 +201,12 @@ after `migrate deploy` without running the seed or any manual SQL.
 
 - **Navigation** is grouped (Workspace · Organization · Account) and only shows what your role can use. On phones
   and tablets it opens from the ☰ button.
-- **Organizations:** click the organization name in the top bar to search your organizations, switch (↑/↓,
-  Enter, Esc) or create a new one.
+- **Organizations:** with one company the top bar simply shows its name. With several, click the name to switch
+  (↑/↓, Enter, Esc; a search box appears when the list is long). "Create organization" is in the account menu.
+- **Branches** (Organization → Branches): add locations, assign a manager and members, archive or make one the
+  default. With more than one branch, projects can be put in a branch and filtered by branch.
+- **Platform console** (TeamFlow staff only): `/platform/login`, password plus an emailed code. It is a separate
+  area with its own navigation; it shows company metadata only and never opens a company's workspace.
 - **Search** (top bar or Ctrl/⌘ K) finds projects, tasks and people you can see.
 - **Tasks open in a side drawer** from anywhere (`?task=<id>` in the URL, so links can be shared). Click a status
   badge to change it; the round checkbox completes a task in one click.
@@ -287,7 +291,7 @@ Base path `/api/v1`. All responses: `{ success, data, meta? }` or `{ success: fa
 cd backend && npm test
 ```
 
-149 integration tests run against a real PostgreSQL database and cover the business-critical scenarios
+151 integration tests run against a real PostgreSQL database and cover the business-critical scenarios
 (results: [PHASE1_BACKEND_AUDIT.md](PHASE1_BACKEND_AUDIT.md), [PHASE2_FRONTEND_QA.md](PHASE2_FRONTEND_QA.md),
 [FINAL_REQUIREMENTS_COMPLIANCE.md](FINAL_REQUIREMENTS_COMPLIANCE.md)):
 
@@ -328,7 +332,7 @@ cd backend && npm test
 cd frontend && npm run test:e2e        # uses the installed Chrome; set PW_CHANNEL=msedge for Edge
 ```
 
-16 Playwright scenarios drive the real UI against the real API. Playwright starts an isolated stack on its own ports —
+21 Playwright scenarios drive the real UI against the real API. Playwright starts an isolated stack on its own ports —
 the API on the **test** database (seeded fresh), the frontend, and `e2e/fake-chapa-server.mjs`, a stand-in for
 Chapa's API and hosted checkout — so tests never touch live Chapa, your development database or running servers.
 Automated tests never send real email either: under `NODE_ENV=test` emails go to an in-memory outbox.
@@ -353,8 +357,15 @@ Automated tests never send real email either: under `NODE_ENV=test` emails go to
    history → another company cannot see any of it.
 8. **Invitations** — new person on a phone; existing account must enter its password (wrong password refused);
    signed in as someone else → refused; expired invitation flagged in the team list and resent.
-9. **Organization switcher** — keyboard and Escape, create an organization (invalid name rejected), search with no
-   matches, keyboard selection, data of each organization kept apart.
+9. **Organizations** — one company shows a plain name (no dropdown); creating a second from the account menu brings
+   the switcher (keyboard, Esc); Owner in one company and Manager in another: navigation, billing access and data
+   follow the active role; a single-branch company sees no branch choices.
+10. **Branches** — owner adds a branch with code, address and manager (only own members offered), adds and removes
+   members (the organization account stays); a branch manager edits only their branch and cannot open another
+   branch's project, even by URL; a failed load shows a retry.
+11. **Platform console** — tenant session can't open it; two-step sign-in; platform navigation only; company detail
+   without any project or task names and no way into the workspace; suspension needs a reason, the company's
+   member is told it is suspended, data is kept; reactivation restores access; all console pages load.
 
 Every scenario also asserts there are no unexpected console errors.
 

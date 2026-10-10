@@ -33,7 +33,7 @@ export function AppShell({ platform = false }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [params, setParams] = useSearchParams();
   const location = useLocation();
-  const groups = filterNav(platform ? PLATFORM_NAV : WORKSPACE_NAV, canAny);
+  const groups = filterNav(platform ? PLATFORM_NAV : WORKSPACE_NAV, { canAny, workspace });
   const taskId = params.get('task');
 
   useEffect(() => setNavOpen(false), [location.pathname]);
@@ -72,7 +72,7 @@ export function AppShell({ platform = false }) {
       <a href="#main" className="sr-only z-50 rounded bg-surface px-3 py-2 focus:not-sr-only focus:fixed focus:left-2 focus:top-2">
         Skip to content
       </a>
-      <Sidebar groups={groups} collapsed={collapsed} onToggle={toggleCollapsed} />
+      <Sidebar groups={groups} collapsed={collapsed} onToggle={toggleCollapsed} platform={platform} />
 
       <RD.Root open={navOpen} onOpenChange={setNavOpen}>
         <RD.Portal>

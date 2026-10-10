@@ -39,7 +39,8 @@ const DAY = 86_400_000;
 
 export async function overview() {
   const soon = new Date(Date.now() + 7 * DAY);
-  const [organizations, suspended, users, revenue, byPlan, plans, failedPayments, expiring] = await Promise.all([
+  const now = new Date();
+  const [organizations, suspended, users, revenue, byPlan, plans, failedPayments, expiring, paidLive, pendingPayments] = await Promise.all([
     prisma.organization.count(),
     prisma.organization.count({ where: { status: 'SUSPENDED' } }),
     prisma.user.count(),
@@ -48,11 +49,17 @@ export async function overview() {
     prisma.subscriptionPlan.findMany({ select: { id: true, code: true, name: true } }),
     prisma.payment.count({ where: { status: 'FAILED', createdAt: { gte: new Date(Date.now() - 30 * DAY) } } }),
     prisma.subscription.count({ where: { status: 'ACTIVE', currentPeriodEnd: { gte: new Date(), lte: soon } } }),
+    // Paid subscriptions that are currently live (Free has no end date).
+    prisma.subscription.count({ where: { status: 'ACTIVE', currentPeriodEnd: { gt: now } } }),
+    prisma.payment.count({ where: { status: 'PENDING' } }),
   ]);
   return {
     organizations,
+    activeOrganizations: organizations - suspended,
     suspended,
     users,
+    activePaidSubscriptions: paidLive,
+    pendingPayments,
     failedPaymentsLast30Days: failedPayments,
     subscriptionsEndingWithin7Days: expiring,
     revenue: revenue.map((r) => ({ currency: r.currency, amountCents: r._sum.amountCents ?? 0, payments: r._count._all })),
@@ -246,7 +253,16 @@ export async function updatePlan(actor, id, data, ipAddress) {
 
 export async function listPayments(query) {
   const { skip, take, meta } = paginate(query);
-  const where = { ...(query.status && { status: query.status }), ...(query.organizationId && { organizationId: query.organizationId }) };
+  const where = {
+    ...(query.status && { status: query.status }),
+    ...(query.organizationId && { organizationId: query.organizationId }),
+    ...(query.search && {
+      OR: [
+        { txRef: { contains: query.search, mode: 'insensitive' } },
+        { organization: { name: { contains: query.search, mode: 'insensitive' } } },
+      ],
+    }),
+  };
   const [items, total] = await prisma.$transaction([
     prisma.payment.findMany({
       where,

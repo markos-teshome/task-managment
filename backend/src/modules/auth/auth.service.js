@@ -73,7 +73,11 @@ async function defaultMembershipId(userId) {
   });
   if (recent) return recent.membershipId;
   const any = await prisma.membership.findFirst({ where: { userId, ...usable }, orderBy: { joinedAt: 'desc' } });
-  return any?.id ?? null;
+  if (any) return any.id;
+  // Only suspended companies left: land on one so the person is told it is suspended (the tenant API still
+  // refuses every request for it), instead of looking like an account without a company.
+  const suspended = await prisma.membership.findFirst({ where: { userId, status: 'ACTIVE' }, orderBy: { joinedAt: 'desc' } });
+  return suspended?.id ?? null;
 }
 
 async function createSession(userId, meta) {
@@ -207,6 +211,19 @@ export async function resetPassword({ token: rawToken, password }) {
 
 // ─────────────────────────────── Profile ───────────────────────────────
 
+async function myBranches(ctx) {
+  const branches = await prisma.branch.findMany({
+    where: {
+      organizationId: ctx.organizationId,
+      status: 'ACTIVE',
+      OR: [{ managerId: ctx.membershipId }, { members: { some: { membershipId: ctx.membershipId } } }],
+    },
+    select: { id: true, name: true, isDefault: true, managerId: true },
+    orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+  });
+  return branches.map((b) => ({ id: b.id, name: b.name, isDefault: b.isDefault, isManager: b.managerId === ctx.membershipId }));
+}
+
 export async function buildMe(ctx) {
   const memberships = await prisma.membership.findMany({
     where: { userId: ctx.userId, status: 'ACTIVE', organization: { status: 'ACTIVE' } },
@@ -229,6 +246,8 @@ export async function buildMe(ctx) {
           role: ctx.role,
           permissions: [...ctx.permissions].sort(),
           ...(await getEntitlementSummary(ctx.organizationId)),
+          // Active branches the person works in or manages (navigation, project branch choice).
+          myBranches: await myBranches(ctx),
         }
       : null,
     workspaceBlockedReason: ctx.tenantBlockedReason === 'NO_WORKSPACE' && !memberships.length ? 'NO_WORKSPACE' : ctx.tenantBlockedReason,

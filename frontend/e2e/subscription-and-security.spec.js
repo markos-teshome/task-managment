@@ -1,8 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { PASSWORD, signIn, signOut, USERS, watchConsole } from './helpers.js';
-import { knownPlatformCode, prisma } from './db.js';
-
-test.afterAll(() => prisma.$disconnect());
+import { signIn, signOut, USERS, watchConsole } from './helpers.js';
 
 // Scenario 4 — Plan limit: blocked with an explanation → upgrade → payment confirmed → can invite.
 test('owner hits the member limit, upgrades, and can invite again', async ({ page }) => {
@@ -95,25 +92,3 @@ test('wrong password shows a clear error', async ({ page }) => {
   await expect(page.getByRole('alert')).toContainText('Incorrect email or password.');
 });
 
-test('platform admin signs in with password + emailed code and manages tenants and plans', async ({ page }) => {
-  // A tenant session gives no access to the console.
-  await signIn(page, USERS.owner);
-  await page.goto('/platform');
-  await expect(page).toHaveURL(/\/platform\/login$/);
-
-  await page.getByLabel('Email').fill(USERS.platform);
-  await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
-  await page.getByLabel('Sign-in code').fill(await knownPlatformCode(USERS.platform));
-  await page.getByRole('button', { name: 'Verify and sign in' }).click();
-  await expect(page).toHaveURL(/\/platform$/);
-  await expect(page.getByRole('heading', { name: 'Platform overview' })).toBeVisible();
-  await page.getByRole('link', { name: 'Organizations' }).click();
-  await expect(page.getByRole('cell', { name: /^Abay Trading PLC Since/ })).toBeVisible();
-  await expect(page.getByRole('cell', { name: /^Gift Construction PLC Since/ })).toBeVisible();
-  await page.getByRole('link', { name: 'Plans & pricing' }).click();
-  await expect(page.getByRole('heading', { name: 'Plans & pricing' })).toBeVisible();
-  // The plan row shows the name and its code ("Professional PROFESSIONAL"); organization rows only the name.
-  await expect(page.getByRole('cell', { name: 'Professional PROFESSIONAL' })).toBeVisible();
-});

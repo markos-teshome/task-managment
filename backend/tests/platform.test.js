@@ -186,3 +186,14 @@ describe('provisioning (command line only)', () => {
     testOutbox.length = 0;
   });
 });
+
+describe('people of a suspended company', () => {
+  it('signing in after the suspension tells them the company is suspended (and still blocks the workspace)', async () => {
+    await platform(agent).patch(`/platform/organizations/${A.org.id}/status`).send({ status: 'SUSPENDED', reason: 'Unpaid invoices' });
+    const token = await login(A.members.emp.user.email);
+    const me = (await as(token).get('/auth/me')).body.data;
+    expect(me.workspace).toBeNull();
+    expect(me.workspaceBlockedReason).toBe('ORGANIZATION_SUSPENDED');
+    expect((await as(token).get('/projects')).body.error.code).toBe('ORGANIZATION_SUSPENDED');
+  });
+});

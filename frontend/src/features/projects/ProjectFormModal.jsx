@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { useCreateProject, useUpdateProject } from './api.js';
 import { useMemberOptions } from '../team/api.js';
 import { MemberPicker } from '../team/MemberPicker.jsx';
+import { useAssignableBranches, useHasSeveralBranches } from '../branches/api.js';
 import { Modal, DialogBody, DialogFooter, DialogClose } from '../../components/ui/Dialog.jsx';
 import { Field, FormAlert, Input, Select, Textarea } from '../../components/ui/Form.jsx';
 import { Button } from '../../components/ui/Button.jsx';
@@ -24,6 +25,7 @@ const schema = z
     startDate: z.string().optional(),
     dueDate: z.string().optional(),
     leadId: z.string().optional(),
+    branchId: z.string().optional(),
     memberIds: z.array(z.string()).optional(),
   })
   .refine((v) => !v.startDate || !v.dueDate || v.dueDate >= v.startDate, { path: ['dueDate'], message: 'Due date cannot be before the start date' });
@@ -34,6 +36,11 @@ export function ProjectFormModal({ open, onOpenChange, project, onCreated }) {
   const create = useCreateProject();
   const update = useUpdateProject(project?.id);
   const members = useMemberOptions();
+  // Branch choice only matters once the company has more than one branch.
+  const severalBranches = useHasSeveralBranches();
+  const { branches } = useAssignableBranches();
+  const branchOptions = project?.branch && !branches.some((b) => b.id === project.branch.id) ? [project.branch, ...branches] : branches;
+  const showBranch = severalBranches && (branchOptions.length > 0 || !!project?.branch);
   const [error, setError] = useState(null);
 
   const form = useForm({
@@ -47,6 +54,7 @@ export function ProjectFormModal({ open, onOpenChange, project, onCreated }) {
           startDate: toDateInput(project?.startDate),
           dueDate: toDateInput(project?.dueDate),
           leadId: project?.lead?.id ?? '',
+          branchId: project?.branch?.id ?? '',
           memberIds: [],
         }
       : undefined,
@@ -68,6 +76,7 @@ export function ProjectFormModal({ open, onOpenChange, project, onCreated }) {
       startDate: emptyToNull(v.startDate),
       dueDate: emptyToNull(v.dueDate),
       leadId: emptyToNull(v.leadId),
+      ...(showBranch && { branchId: emptyToNull(v.branchId) }),
       ...(!editing && { memberIds: v.memberIds }),
     };
     if (editing) {
@@ -80,6 +89,7 @@ export function ProjectFormModal({ open, onOpenChange, project, onCreated }) {
         startDate: toDateInput(project.startDate) || null,
         dueDate: toDateInput(project.dueDate) || null,
         leadId: project.lead?.id ?? null,
+        branchId: project.branch?.id ?? null,
       };
       for (const key of Object.keys(body)) if (body[key] === original[key]) delete body[key];
       if (!Object.keys(body).length) return close(false);
@@ -138,6 +148,16 @@ export function ProjectFormModal({ open, onOpenChange, project, onCreated }) {
               ))}
             </Select>
           </Field>
+          {showBranch && (
+            <Field label="Branch" hint="Organization-wide projects follow normal role and team rules; branch projects are seen by that branch's people." error={formState.errors.branchId?.message}>
+              <Select {...register('branchId')}>
+                <option value="">Organization-wide</option>
+                {branchOptions.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </Select>
+            </Field>
+          )}
           {!editing && (
             <div>
               <p className="mb-1 text-[13px] font-medium">

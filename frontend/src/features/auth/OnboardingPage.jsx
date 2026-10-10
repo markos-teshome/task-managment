@@ -39,9 +39,9 @@ export function OnboardingPage() {
     }
   };
 
-  const switchTo = async (membershipId) => {
+  const switchTo = async (organizationId) => {
     try {
-      applySession(await api.post('/auth/switch-workspace', { membershipId }));
+      applySession(await api.post('/organizations/switch', { organizationId }));
       navigate('/', { replace: true });
     } catch (err) {
       setError(err.message);
@@ -68,7 +68,7 @@ export function OnboardingPage() {
           <ul className="divide-y divide-line rounded-md border border-line">
             {me.memberships.map((m) => (
               <li key={m.id}>
-                <button type="button" onClick={() => switchTo(m.id)} className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-canvas">
+                <button type="button" onClick={() => switchTo(m.organization.id)} className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-canvas">
                   <span className="font-medium">{m.organization.name}</span>
                   <span className="text-xs text-ink-subtle">{m.roleName}</span>
                 </button>
@@ -87,6 +87,10 @@ export function OnboardingPage() {
           Create organization
         </Button>
         <p className="text-center text-xs text-ink-subtle">You'll be the owner. Every organization starts on the Free plan.</p>
+        <p className="rounded-md bg-canvas px-3 py-2 text-[12.5px] text-ink-muted">
+          <span className="font-medium text-ink">Joining your company instead?</span> Ask its owner or an admin to invite {me?.user.email ?? 'you'}. The
+          invitation email adds you to their workspace — no new organization needed.
+        </p>
       </form>
     </AuthLayout>
   );

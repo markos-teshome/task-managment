@@ -1,16 +1,26 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { LogOut, Menu as MenuIcon, Search, Settings } from 'lucide-react';
+import { Building2, LogOut, Menu as MenuIcon, Search, Settings, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../features/auth/AuthProvider.jsx';
 import { Avatar } from '../../components/ui/Avatar.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '../../components/ui/Menu.jsx';
 import { OrganizationSwitcher } from '../../features/organizations/OrganizationSwitcher.jsx';
+import { CreateOrganizationDialog } from '../../features/organizations/CreateOrganizationDialog.jsx';
 import { usePlatformAdmin } from '../../features/platform/PlatformAuth.jsx';
 
 /** Platform admins have no workspace; everyone else gets the organization switcher. */
-function WorkspaceSwitcher() {
+function WorkspaceSwitcher({ platform }) {
   const { workspace } = useAuth();
-  if (!workspace) return <span className="truncate text-[13px] font-semibold text-ink">TeamFlow Platform</span>;
+  // The platform console never shows tenant context, even if the browser also holds a company session.
+  if (platform || !workspace) {
+    return (
+      <span className="flex min-w-0 items-center gap-2 text-[13px] font-semibold text-ink">
+        <ShieldCheck size={16} className="shrink-0 text-brand-700" aria-hidden="true" />
+        <span className="truncate">TeamFlow platform console</span>
+      </span>
+    );
+  }
   return <OrganizationSwitcher />;
 }
 
@@ -18,6 +28,7 @@ export function Topbar({ onOpenNav, onOpenSearch, showSearch, platform = false }
   const auth = useAuth();
   const platformSession = usePlatformAdmin();
   const navigate = useNavigate();
+  const [creatingOrg, setCreatingOrg] = useState(false);
   // The platform console has its own identity and session (see PlatformAuth.jsx).
   const user = platform ? platformSession.admin : auth.user;
   const workspace = platform ? null : auth.workspace;
@@ -27,7 +38,7 @@ export function Topbar({ onOpenNav, onOpenSearch, showSearch, platform = false }
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface/95 px-3 backdrop-blur sm:px-4">
       <Button variant="ghost" size="icon" icon={MenuIcon} aria-label="Open navigation" onClick={onOpenNav} className="-ml-1 lg:hidden" />
       <div className="min-w-0 flex-1">
-        <WorkspaceSwitcher />
+        <WorkspaceSwitcher platform={platform} />
       </div>
 
       {showSearch && (
@@ -62,15 +73,21 @@ export function Topbar({ onOpenNav, onOpenSearch, showSearch, platform = false }
           </div>
           <MenuSeparator />
           {!platform && (
-            <MenuItem icon={Settings} onSelect={() => navigate('/settings')}>
-              Profile & settings
-            </MenuItem>
+            <>
+              <MenuItem icon={Settings} onSelect={() => navigate('/settings')}>
+                Profile & settings
+              </MenuItem>
+              <MenuItem icon={Building2} onSelect={() => setCreatingOrg(true)}>
+                Create organization
+              </MenuItem>
+            </>
           )}
           <MenuItem icon={LogOut} onSelect={signOut}>
             Sign out
           </MenuItem>
         </MenuContent>
       </Menu>
+      {!platform && <CreateOrganizationDialog open={creatingOrg} onOpenChange={setCreatingOrg} />}
     </header>
   );
 }

@@ -20,6 +20,22 @@ import { PROJECT_STATUS } from '../../lib/status.js';
 import { formatDate, greeting } from '../../lib/format.js';
 import { cn } from '../../lib/cn.js';
 
+/** Current plan as a small chip next to the company name; links to billing for people who manage it. */
+function PlanChip({ plan, linked }) {
+  const chip = (
+    <span className="inline-flex items-center rounded-full border border-accent-200 bg-accent-50 px-2 py-px text-[11.5px] font-medium text-accent-700">
+      {plan.name} plan
+    </span>
+  );
+  return linked ? (
+    <Link to="/billing" className="rounded-full hover:opacity-80">
+      {chip}
+    </Link>
+  ) : (
+    chip
+  );
+}
+
 /** One compact figure in the metrics strip. */
 function Metric({ label, value, sub, tone, to }) {
   const body = (
@@ -38,13 +54,19 @@ function Metric({ label, value, sub, tone, to }) {
   );
 }
 
-function MetricsStrip({ stats, canProjects }) {
+/**
+ * Real figures only: work numbers from /dashboard (already scoped to what this person may see), team and
+ * branch counts from the workspace's plan usage. Each figure is shown only to people allowed to act on it.
+ */
+function MetricsStrip({ stats, canProjects, workspace, can, canAny }) {
+  const { usage, plan } = workspace;
   const items = [
     canProjects && stats.activeProjects !== null && { label: 'Active projects', value: stats.activeProjects, sub: `of ${stats.totalProjects} total`, to: '/projects?status=ACTIVE' },
-    stats.openTasks !== null && { label: 'Open tasks', value: stats.openTasks, sub: 'Across your projects', to: '/tasks' },
-    stats.dueSoon !== null && { label: 'Due this week', value: stats.dueSoon, sub: 'Next 7 days', to: '/tasks?due=week' },
+    stats.openTasks !== null && { label: 'Open tasks', value: stats.openTasks, sub: stats.dueSoon ? `${stats.dueSoon} due this week` : 'Across your projects', to: '/tasks' },
     stats.overdue !== null && { label: 'Overdue', value: stats.overdue, sub: stats.overdue ? 'Needs attention' : 'Nothing late', tone: 'danger', to: '/tasks?due=overdue' },
     stats.completionRate !== null && { label: 'Completion', value: `${stats.completionRate}%`, sub: 'Of all tasks done' },
+    can('USER_VIEW') && { label: 'Team', value: usage.users, sub: plan.maxUsers !== null ? `of ${plan.maxUsers} seats` : 'Members & invites', to: '/team' },
+    canAny('BRANCH_VIEW', 'BRANCH_MANAGE') && { label: 'Branches', value: usage.branches, sub: usage.branches === 1 ? 'Head office only' : 'Active locations', to: '/branches' },
   ].filter(Boolean);
   if (!items.length) return null;
   return (
@@ -238,7 +260,7 @@ function DashboardSkeleton() {
 const hasSide = (d) => !!(d.subscription || d.workload?.length || d.recentActivity);
 
 export function DashboardPage() {
-  useDocumentTitle('Dashboard');
+  useDocumentTitle('Overview');
   const { user, workspace, can, canAny } = useAuth();
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
@@ -256,7 +278,10 @@ export function DashboardPage() {
           <h1 className="text-lg font-semibold tracking-tight sm:text-xl">
             {greeting()}, {user.firstName}
           </h1>
-          <p className="mt-0.5 text-[13px] text-ink-muted">Here's what's happening at {workspace.organization.name}.</p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-muted">
+            <span>Here's what's happening at {workspace.organization.name}.</span>
+            <PlanChip plan={workspace.plan} linked={can('SUBSCRIPTION_VIEW')} />
+          </p>
         </div>
         {can('PROJECT_CREATE') && (
           <Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>
@@ -271,7 +296,7 @@ export function DashboardPage() {
         <DashboardSkeleton />
       ) : (
         <>
-          <MetricsStrip stats={data.stats} canProjects={canProjects} />
+          <MetricsStrip stats={data.stats} canProjects={canProjects} workspace={workspace} can={can} canAny={canAny} />
           <div className={cn('grid gap-6', hasSide(data) && 'lg:grid-cols-[minmax(0,1fr)_340px]')}>
             <div className="min-w-0 space-y-6">
               {orgView ? (

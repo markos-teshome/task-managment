@@ -22,16 +22,22 @@ const TasksPage = page(() => import('../features/tasks/TasksPage.jsx'), 'TasksPa
 const ProjectsPage = page(() => import('../features/projects/ProjectsPage.jsx'), 'ProjectsPage');
 const ProjectDetailPage = page(() => import('../features/projects/ProjectDetailPage.jsx'), 'ProjectDetailPage');
 const TeamPage = page(() => import('../features/team/TeamPage.jsx'), 'TeamPage');
+const BranchesPage = page(() => import('../features/branches/BranchesPage.jsx'), 'BranchesPage');
+const BranchDetailPage = page(() => import('../features/branches/BranchDetailPage.jsx'), 'BranchDetailPage');
 const RolesPage = page(() => import('../features/roles/RolesPage.jsx'), 'RolesPage');
 const ActivityPage = page(() => import('../features/activity/ActivityPage.jsx'), 'ActivityPage');
 const BillingPage = page(() => import('../features/billing/BillingPage.jsx'), 'BillingPage');
 const PaymentReturnPage = page(() => import('../features/billing/PaymentReturnPage.jsx'), 'PaymentReturnPage');
 const SettingsPage = page(() => import('../features/settings/SettingsPage.jsx'), 'SettingsPage');
-const PlatformOverviewPage = page(() => import('../features/platform/PlatformPages.jsx'), 'PlatformOverviewPage');
-const PlatformOrganizationsPage = page(() => import('../features/platform/PlatformPages.jsx'), 'PlatformOrganizationsPage');
-const PlatformPlansPage = page(() => import('../features/platform/PlatformPages.jsx'), 'PlatformPlansPage');
-const PlatformPaymentsPage = page(() => import('../features/platform/PlatformPages.jsx'), 'PlatformPaymentsPage');
 const PlatformLoginPage = page(() => import('../features/platform/PlatformAuth.jsx'), 'PlatformLoginPage');
+const PlatformOverviewPage = page(() => import('../features/platform/PlatformOverviewPage.jsx'), 'PlatformOverviewPage');
+const PlatformOrganizationsPage = page(() => import('../features/platform/PlatformOrganizationsPage.jsx'), 'PlatformOrganizationsPage');
+const PlatformOrganizationDetailPage = page(() => import('../features/platform/PlatformOrganizationDetailPage.jsx'), 'PlatformOrganizationDetailPage');
+const PlatformSubscriptionsPage = page(() => import('../features/platform/PlatformBillingPages.jsx'), 'PlatformSubscriptionsPage');
+const PlatformPaymentsPage = page(() => import('../features/platform/PlatformBillingPages.jsx'), 'PlatformPaymentsPage');
+const PlatformPlansPage = page(() => import('../features/platform/PlatformBillingPages.jsx'), 'PlatformPlansPage');
+const PlatformActivityPage = page(() => import('../features/platform/PlatformOpsPages.jsx'), 'PlatformActivityPage');
+const PlatformHealthPage = page(() => import('../features/platform/PlatformOpsPages.jsx'), 'PlatformHealthPage');
 
 const standalone = (el) => <Suspense fallback={<SplashScreen />}>{el}</Suspense>;
 const guard = (any, el) => <RequirePermission any={any}>{el}</RequirePermission>;
@@ -73,8 +79,13 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <PlatformOverviewPage /> },
           { path: 'organizations', element: <PlatformOrganizationsPage /> },
-          { path: 'plans', element: <PlatformPlansPage /> },
+          { path: 'organizations/:id', element: <PlatformOrganizationDetailPage /> },
+          { path: 'subscriptions', element: <PlatformSubscriptionsPage /> },
           { path: 'payments', element: <PlatformPaymentsPage /> },
+          { path: 'plans', element: <PlatformPlansPage /> },
+          { path: 'activity', element: <PlatformActivityPage /> },
+          { path: 'health', element: <PlatformHealthPage /> },
+          { path: '*', element: <NotFoundPage /> },
         ],
       },
     ],
@@ -95,6 +106,9 @@ export const router = createBrowserRouter([
               { path: '/projects', element: guard(['PROJECT_VIEW', 'PROJECT_VIEW_ALL'], <ProjectsPage />) },
               { path: '/projects/:id', element: guard(['PROJECT_VIEW', 'PROJECT_VIEW_ALL'], <ProjectDetailPage />) },
               { path: '/team', element: guard(['USER_VIEW'], <TeamPage />) },
+              // No page gate: the API returns only the branches the person may see.
+              { path: '/branches', element: <BranchesPage /> },
+              { path: '/branches/:id', element: <BranchDetailPage /> },
               { path: '/roles', element: guard(['ROLE_VIEW'], <RolesPage />) },
               { path: '/activity', element: guard(['ACTIVITY_VIEW'], <ActivityPage />) },
               { path: '/billing', element: guard(['SUBSCRIPTION_VIEW', 'BILLING_VIEW'], <BillingPage />) },

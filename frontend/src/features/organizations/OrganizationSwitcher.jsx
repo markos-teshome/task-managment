@@ -25,13 +25,34 @@ export function OrgTile({ name, size = 'md', className }) {
   );
 }
 
+// The search box only appears when there are enough organizations to need it.
+const SEARCH_THRESHOLD = 6;
+
+/** One organization: a plain identity, deliberately not a control (nothing to choose). */
+function WorkspaceIdentity({ name }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2 py-1 pl-1">
+      <OrgTile name={name} size="sm" />
+      <span className="truncate text-[13px] font-semibold">{name}</span>
+    </span>
+  );
+}
+
 /**
- * Organization switcher (combobox). Lists only the caller's own active memberships (from /auth/me —
- * the API never sends anyone else's organizations). Switching goes through the API, which moves the
- * session to that membership; the client then drops every cached query, so no data carries over.
+ * Workspace identity / switcher. With one organization it is just the name. With several it is a combobox
+ * listing only the caller's own active memberships (from /auth/me — the API never sends other tenants).
+ * Switching goes through POST /organizations/switch; the client then drops every cached query before the
+ * new workspace renders, so nothing from the previous company is shown under the new name, and the
+ * navigation follows the new role's permissions.
  * Keyboard: ↑/↓ move, Enter selects, Home/End jump, Esc closes and returns focus to the trigger.
  */
 export function OrganizationSwitcher() {
+  const { me, workspace } = useAuth();
+  if (me.memberships.length < 2) return <WorkspaceIdentity name={workspace.organization.name} />;
+  return <Switcher />;
+}
+
+function Switcher() {
   const { me, workspace, applySession } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -45,6 +66,7 @@ export function OrganizationSwitcher() {
   const listId = useId();
 
   const memberships = me.memberships;
+  const showSearch = memberships.length >= SEARCH_THRESHOLD;
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return q ? memberships.filter((m) => m.organization.name.toLowerCase().includes(q)) : memberships;
@@ -58,10 +80,15 @@ export function OrganizationSwitcher() {
     return () => document.removeEventListener('pointerdown', onDown);
   }, [open]);
 
-  useEffect(() => setActive(0), [query, open]);
+  // Start on the current organization; while searching, on the first match.
+  useEffect(() => setActive(query ? 0 : Math.max(0, memberships.findIndex((m) => m.id === workspace.membershipId))), [query, open, memberships, workspace.membershipId]);
   useEffect(() => {
     listRef.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [active]);
+  // Without a search box the list itself takes keyboard focus (autoFocus only works on form controls).
+  useEffect(() => {
+    if (open && !showSearch) listRef.current?.focus();
+  }, [open, showSearch]);
 
   const close = (refocus = true) => {
     setOpen(false);
@@ -73,7 +100,7 @@ export function OrganizationSwitcher() {
     if (m.id === workspace.membershipId) return close();
     setSwitching(m.id);
     try {
-      applySession(await api.post('/auth/switch-workspace', { membershipId: m.id }));
+      applySession(await api.post('/organizations/switch', { organizationId: m.organization.id }));
       close(false);
       navigate('/');
     } catch (err) {
@@ -131,6 +158,7 @@ export function OrganizationSwitcher() {
           onKeyDown={onKeyDown}
           onBlur={(e) => e.relatedTarget && !rootRef.current?.contains(e.relatedTarget) && close(false)}
         >
+          {showSearch && (
           <div className="relative border-b border-line">
             <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-subtle" aria-hidden="true" />
             <input
@@ -146,9 +174,18 @@ export function OrganizationSwitcher() {
               className="h-10 w-full bg-transparent pl-8 pr-3 text-[16px] placeholder:text-ink-subtle focus:outline-none sm:h-9 sm:text-[13px]"
             />
           </div>
+          )}
 
           <p className="px-3 pb-1 pt-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">Your organizations</p>
-          <ul ref={listRef} id={listId} role="listbox" aria-label="Your organizations" className="max-h-64 overflow-y-auto px-1 pb-1">
+          <ul
+            ref={listRef}
+            id={listId}
+            role="listbox"
+            aria-label="Your organizations"
+            tabIndex={showSearch ? undefined : 0}
+            aria-activedescendant={!showSearch && filtered[active] ? optionId(active) : undefined}
+            className="max-h-64 overflow-y-auto px-1 pb-1 focus:outline-none"
+          >
             {filtered.map((m, i) => {
               const current = m.id === workspace.membershipId;
               return (

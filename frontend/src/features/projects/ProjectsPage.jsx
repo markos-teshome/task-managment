@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { FolderKanban, Plus, SearchX } from 'lucide-react';
+import { FolderKanban, MapPin, Plus, SearchX } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import { useProjects } from './api.js';
 import { ProjectFormModal } from './ProjectFormModal.jsx';
@@ -14,12 +14,13 @@ import { FilterSelect, Pagination, SearchInput } from '../../components/ui/Misc.
 import { EmptyState, ErrorState } from '../../components/feedback/States.jsx';
 import { DueLabel } from '../tasks/components.jsx';
 import { useUrlFilters } from '../../hooks/useUrlFilters.js';
+import { useBranches, useHasSeveralBranches } from '../branches/api.js';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js';
 import { PRIORITY, PROJECT_STATUS, options } from '../../lib/status.js';
 import { pluralize } from '../../lib/format.js';
 import { cn } from '../../lib/cn.js';
 
-const KEYS = ['search', 'status', 'priority', 'archived', 'sort', 'page'];
+const KEYS = ['search', 'status', 'priority', 'branchId', 'archived', 'sort', 'page'];
 const SORTS = {
   createdAt: { label: 'Newest first', order: 'desc' },
   dueDate: { label: 'Due date', order: 'asc' },
@@ -36,6 +37,9 @@ export function ProjectsPage() {
   const sort = SORTS[filters.sort] ? filters.sort : 'createdAt';
   const { data, isLoading, isFetching, error, refetch } = useProjects({ ...filters, sort, order: SORTS[sort].order, pageSize: 20 });
   const archived = filters.archived === 'true';
+  // Branch filter only when there is more than one branch; the list holds the branches this person may see.
+  const severalBranches = useHasSeveralBranches();
+  const branches = useBranches({}, { enabled: severalBranches });
 
   const columns = [
     {
@@ -49,6 +53,12 @@ export function ProjectsPage() {
           </Link>
           {p.stats.overdue > 0 && <span className="text-xs text-danger-600">{p.stats.overdue} overdue</span>}
           {p.stats.overdue === 0 && <span className="text-xs text-ink-subtle">{pluralize(p.stats.total, 'task')}</span>}
+          {p.branch && (
+            <span className="ml-2 inline-flex items-center gap-0.5 text-xs text-ink-subtle">
+              <MapPin size={11} aria-hidden="true" />
+              {p.branch.name}
+            </span>
+          )}
         </div>
       ),
     },
@@ -77,6 +87,15 @@ export function ProjectsPage() {
       <Toolbar search={<SearchInput value={filters.search} onChange={(search) => setFilters({ search })} placeholder="Search projects…" className="w-full sm:w-64" label="Search projects" />} activeCount={activeCount} onClear={clear}>
         <FilterSelect label="Status" value={filters.status} onChange={(status) => setFilters({ status })} options={options(PROJECT_STATUS)} />
         <FilterSelect label="Priority" value={filters.priority} onChange={(priority) => setFilters({ priority })} options={options(PRIORITY)} allLabel="All priorities" />
+        {severalBranches && branches.data && (
+          <FilterSelect
+            label="Branch"
+            value={filters.branchId}
+            onChange={(branchId) => setFilters({ branchId })}
+            options={[{ value: 'none', label: 'Organization-wide' }, ...branches.data.map((b) => ({ value: b.id, label: b.name }))]}
+            allLabel="All branches"
+          />
+        )}
         <FilterSelect
           label="Sort"
           value={filters.sort}

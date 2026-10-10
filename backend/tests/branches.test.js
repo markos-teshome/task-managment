@@ -249,3 +249,13 @@ describe('subscription limits are company-wide', () => {
     expect(checkout.body.error.message).toMatch(/2 active branches/);
   });
 });
+
+describe('profile exposes the caller\'s own branches', () => {
+  it('/auth/me lists active branches the person works in or manages, never others', async () => {
+    const bole = await createBranch(owner, { name: 'Bole Branch', managerId: A.members.manager.membership.id });
+    await createBranch(owner, { name: 'CMC Branch' });
+    const me = (await as(manager).get('/auth/me')).body.data.workspace;
+    expect(me.myBranches).toEqual([{ id: bole.id, name: 'Bole Branch', isDefault: false, isManager: true }]);
+    expect(me.usage.branches).toBe(3);
+  });
+});

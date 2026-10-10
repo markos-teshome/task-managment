@@ -72,7 +72,7 @@ function PlanStatus({ collapsed }) {
   );
 }
 
-export function Sidebar({ groups, collapsed, onToggle }) {
+export function Sidebar({ groups, collapsed, onToggle, platform = false }) {
   return (
     <aside
       className={cn(
@@ -81,12 +81,17 @@ export function Sidebar({ groups, collapsed, onToggle }) {
       )}
     >
       <div className={cn('flex h-14 shrink-0 items-center', collapsed ? 'justify-center' : 'px-4')}>
-        <Link to="/" aria-label={collapsed ? "TeamFlow dashboard" : undefined}>
+        <Link to={platform ? '/platform' : '/'} aria-label={collapsed ? (platform ? 'Platform overview' : 'TeamFlow overview') : undefined}>
           <Logo collapsed={collapsed} inverted />
         </Link>
       </div>
+      {platform && !collapsed && (
+        <p className="mx-4 -mt-1 mb-1 inline-flex w-fit items-center rounded bg-accent-500 px-1.5 py-px text-[10px] font-bold uppercase tracking-[0.12em] text-brand-900">
+          Platform console
+        </p>
+      )}
       <SidebarNav groups={groups} collapsed={collapsed} />
-      <PlanStatus collapsed={collapsed} />
+      {!platform && <PlanStatus collapsed={collapsed} />}
       <div className={cn('border-t border-white/10 p-2', collapsed && 'flex justify-center')}>
         <button
           type="button"

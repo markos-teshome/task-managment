@@ -57,7 +57,7 @@ export function Toolbar({ search, activeCount = 0, onClear, children, className 
 export function Section({ title, action, children, className, id }) {
   return (
     <section className={className} aria-labelledby={id}>
-      <div className="mb-2 flex items-center justify-between gap-2">
+      <div className="mb-2 flex min-h-7 items-center justify-between gap-2">
         <h2 id={id} className="text-[12px] font-semibold uppercase tracking-wide text-ink-subtle">
           {title}
         </h2>

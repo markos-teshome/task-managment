@@ -1,6 +1,6 @@
 import {
   Ban, CheckCircle2, Circle, CircleDashed, CircleDot, CircleSlash, Clock, PauseCircle, XCircle,
-  ChevronsUp, ChevronUp, Equal, ChevronDown, Mail, UserCheck, UserX, Loader,
+  ChevronsUp, ChevronUp, Equal, ChevronDown, Mail, UserCheck, UserX, Loader, Archive,
 } from 'lucide-react';
 
 /**
@@ -69,4 +69,9 @@ export const options = (map) => Object.entries(map).map(([value, { label }]) => 
 /** Human labels for plan feature flags. */
 export const FEATURE_LABELS = {
   DATA_EXPORT: 'CSV data export',
+};
+
+export const BRANCH_STATUS = {
+  ACTIVE: { label: 'Active', tone: 'success', icon: CircleDot },
+  INACTIVE: { label: 'Archived', tone: 'neutral', icon: Archive },
 };

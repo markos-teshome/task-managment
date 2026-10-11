@@ -34,6 +34,7 @@ enum UserStatus {
 enum OrganizationStatus {
   ACTIVE
   SUSPENDED
+  CLOSED // closed by the platform after the Owner's closure request; data retained, reversible
 }
 
 enum BranchStatus {
@@ -167,12 +168,17 @@ model AuthToken {
 // ───────────────────────────── Tenancy ─────────────────────────────
 
 model Organization {
-  id        String             @id @default(uuid()) @db.Uuid
-  name      String
-  slug      String             @unique
-  status    OrganizationStatus @default(ACTIVE)
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  id                   String             @id @default(uuid()) @db.Uuid
+  name                 String
+  slug                 String             @unique
+  status               OrganizationStatus @default(ACTIVE)
+  // Owner's closure request (D-9). Processing it (status CLOSED) is a platform action; nothing is deleted.
+  closureRequestedAt   DateTime?
+  closureReason        String?
+  closureRequestedById String?            @db.Uuid
+  closedAt             DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
   memberships  Membership[]
   roles        Role[]

@@ -19,6 +19,7 @@ import { useDocumentTitle } from '../../hooks/useDocumentTitle.js';
 import { PRIORITY, PROJECT_STATUS, options } from '../../lib/status.js';
 import { pluralize } from '../../lib/format.js';
 import { cn } from '../../lib/cn.js';
+import { onIntent, prefetchProject } from '../../app/preload.js';
 
 const KEYS = ['search', 'status', 'priority', 'branchId', 'archived', 'sort', 'page'];
 const SORTS = {
@@ -48,7 +49,7 @@ export function ProjectsPage() {
       className: 'w-auto',
       cell: (p) => (
         <div className="min-w-0">
-          <Link to={`/projects/${p.id}`} className="block truncate font-medium hover:text-brand-700 hover:underline">
+          <Link to={`/projects/${p.id}`} {...onIntent(() => prefetchProject(p.id))} className="block truncate font-medium hover:text-brand-700 hover:underline">
             {p.name}
           </Link>
           {p.stats.overdue > 0 && <span className="text-xs text-danger-600">{p.stats.overdue} overdue</span>}
@@ -145,7 +146,7 @@ export function ProjectsPage() {
             mobileRow={(p) => (
               <div>
                 <div className="flex items-start justify-between gap-2">
-                  <Link to={`/projects/${p.id}`} className="min-w-0 text-[14px] font-medium leading-snug">
+                  <Link to={`/projects/${p.id}`} {...onIntent(() => prefetchProject(p.id))} className="min-w-0 text-[14px] font-medium leading-snug">
                     {p.name}
                   </Link>
                   <StatusBadge map={PROJECT_STATUS} value={p.status} />

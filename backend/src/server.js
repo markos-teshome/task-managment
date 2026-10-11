@@ -4,6 +4,7 @@ import { prisma } from './lib/prisma.js';
 import { createApp } from './app.js';
 import { ensureReferenceData } from './bootstrap.js';
 import { verifyMailer } from './lib/mailer.js';
+import { startNotificationJobs } from './modules/notifications/notification.jobs.js';
 
 async function main() {
   await prisma.$connect();
@@ -19,6 +20,7 @@ async function main() {
     }
     if (config.apiUrlIsLocal) logger.warn('API_URL is local: Chapa cannot reach the webhook/callback. Use a public URL (e.g. a tunnel).');
     verifyMailer();
+    startNotificationJobs(); // daily reminders (08:00 Addis Ababa) and notification email delivery
   });
 
   const shutdown = async (signal) => {

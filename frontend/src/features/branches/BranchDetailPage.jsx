@@ -13,7 +13,8 @@ import { Button } from '../../components/ui/Button.jsx';
 import { Badge, StatusBadge } from '../../components/ui/Badge.jsx';
 import { Avatar } from '../../components/ui/Avatar.jsx';
 import { Progress } from '../../components/ui/Progress.jsx';
-import { Skeleton } from '../../components/ui/Misc.jsx';
+import { Pagination, Skeleton } from '../../components/ui/Misc.jsx';
+import { onIntent, prefetchProject } from '../../app/preload.js';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '../../components/ui/Menu.jsx';
 import { ConfirmDialog, Modal, DialogBody, DialogFooter, DialogClose } from '../../components/ui/Dialog.jsx';
 import { FormAlert } from '../../components/ui/Form.jsx';
@@ -190,7 +191,8 @@ function Fact({ label, children }) {
 function BranchProjects({ branchId }) {
   const { canAny } = useAuth();
   const allowed = canAny('PROJECT_VIEW', 'PROJECT_VIEW_ALL');
-  const { data, isLoading, error, refetch } = useProjects({ branchId, pageSize: 50, sort: 'name', order: 'asc' }, { enabled: allowed });
+  const [page, setPage] = useState(1);
+  const { data, isLoading, error, refetch } = useProjects({ branchId, page, pageSize: 10, sort: 'name', order: 'asc' }, { enabled: allowed });
   if (!allowed) return null;
   return (
     <Section title={`Projects${data ? ` · ${data.meta.total}` : ''}`} id="branch-projects">
@@ -207,7 +209,7 @@ function BranchProjects({ branchId }) {
           {data.items.map((p) => (
             <li key={p.id} className="px-3 py-2">
               <div className="flex items-center justify-between gap-2">
-                <Link to={`/projects/${p.id}`} className="min-w-0 truncate text-[13px] font-medium hover:text-brand-700 hover:underline">
+                <Link to={`/projects/${p.id}`} {...onIntent(() => prefetchProject(p.id))} className="min-w-0 truncate text-[13px] font-medium hover:text-brand-700 hover:underline">
                   {p.name}
                 </Link>
                 <StatusBadge map={PROJECT_STATUS} value={p.status} />
@@ -217,6 +219,7 @@ function BranchProjects({ branchId }) {
           ))}
         </ul>
       )}
+      <Pagination meta={data?.meta} onPageChange={setPage} />
     </Section>
   );
 }

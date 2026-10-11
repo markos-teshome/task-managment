@@ -30,6 +30,7 @@ const BillingPage = page(() => import('../features/billing/BillingPage.jsx'), 'B
 const PaymentReturnPage = page(() => import('../features/billing/PaymentReturnPage.jsx'), 'PaymentReturnPage');
 const ResolveBillingPage = page(() => import('../features/billing/ResolveBillingPage.jsx'), 'ResolveBillingPage');
 const ResolveBillingReturnPage = page(() => import('../features/billing/ResolveBillingPage.jsx'), 'ResolveBillingReturnPage');
+const NotificationsPage = page(() => import('../features/notifications/NotificationsPage.jsx'), 'NotificationsPage');
 const SettingsPage = page(() => import('../features/settings/SettingsPage.jsx'), 'SettingsPage');
 const PlatformLoginPage = page(() => import('../features/platform/PlatformAuth.jsx'), 'PlatformLoginPage');
 const PlatformOverviewPage = page(() => import('../features/platform/PlatformOverviewPage.jsx'), 'PlatformOverviewPage');
@@ -118,6 +119,7 @@ export const router = createBrowserRouter([
               { path: '/activity', element: guard(['ACTIVITY_VIEW'], <ActivityPage />) },
               { path: '/billing', element: guard(['SUBSCRIPTION_VIEW', 'BILLING_VIEW'], <BillingPage />) },
               { path: '/billing/return', element: guard(['BILLING_VIEW'], <PaymentReturnPage />) },
+              { path: '/notifications', element: <NotificationsPage /> },
               { path: '/settings', element: <SettingsPage /> },
               { path: '*', element: <NotFoundPage /> },
             ],

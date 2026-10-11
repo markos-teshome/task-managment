@@ -3,6 +3,7 @@ import { PanelLeftClose, PanelLeftOpen, Sparkles } from 'lucide-react';
 import { Logo } from '../../components/brand/Logo.jsx';
 import { cn } from '../../lib/cn.js';
 import { useAuth } from '../../features/auth/AuthProvider.jsx';
+import { onIntent, preloadRoute } from '../preload.js';
 
 /** Navy sidebar: structure in brand navy, the active item marked with the yellow accent. */
 export function SidebarNav({ groups, collapsed = false, onNavigate }) {
@@ -22,6 +23,7 @@ export function SidebarNav({ groups, collapsed = false, onNavigate }) {
                   to={to}
                   end={end}
                   onClick={onNavigate}
+                  {...onIntent(() => preloadRoute(to))}
                   title={collapsed ? label : undefined}
                   aria-label={collapsed ? label : undefined}
                   className={({ isActive }) =>

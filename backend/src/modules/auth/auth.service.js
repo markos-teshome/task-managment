@@ -7,9 +7,11 @@ import { password as passwordRule } from '../../common/validators/index.js';
 import { newRefreshSecret, parseRefreshToken, signAccessToken } from './tokens.js';
 import { loadSessionContext } from './context.js';
 import { consumeToken, findValidToken, issueAuthToken } from './authToken.service.js';
-import { sendAlreadyRegisteredEmail, sendPasswordResetEmail, sendVerificationEmail } from './auth.emails.js';
+import { sendAlreadyRegisteredEmail, sendPasswordChangedEmail, sendPasswordResetEmail, sendVerificationEmail } from './auth.emails.js';
 import { getEntitlementSummary } from '../subscriptions/entitlement.service.js';
 import { ACTIONS, logActivity } from '../activities/activity.service.js';
+import { membersWithPermission, notify } from '../notifications/notification.service.js';
+import { logger } from '../../lib/logger.js';
 
 const MAX_FAILED_LOGINS = 5;
 const LOCK_MINUTES = 1;
@@ -188,11 +190,23 @@ const revokeAllSessions = (db, userId, exceptSessionId) =>
 
 // ─────────────────────────────── Password recovery ───────────────────────────────
 
+const RESEND_COOLDOWN_MS = 60_000;
+
+/**
+ * Issues and emails a reset link. The route answers the same generic message without waiting for this, so
+ * neither the response nor its timing says whether the account exists. Not eligible: unknown email, disabled
+ * account, or an invited person who never set a password (they finish through their invitation instead).
+ * At most one email a minute per account, on top of the per-IP/email rate limit.
+ */
 export async function forgotPassword(email) {
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || user.status !== 'ACTIVE' || !user.passwordHash) return; // generic response either way
+  if (!user || user.status !== 'ACTIVE' || !user.passwordHash) return;
+  const recent = await prisma.authToken.count({
+    where: { userId: user.id, type: 'PASSWORD_RESET', usedAt: null, createdAt: { gt: new Date(Date.now() - RESEND_COOLDOWN_MS) } },
+  });
+  if (recent) return;
   const token = await issueAuthToken(prisma, { userId: user.id, type: 'PASSWORD_RESET' });
-  await sendPasswordResetEmail(user, token);
+  if (!(await sendPasswordResetEmail(user, token))) logger.warn({ userId: user.id }, 'Password reset email was not accepted by SMTP');
 }
 
 export async function resetPassword({ token: rawToken, password }) {
@@ -207,6 +221,7 @@ export async function resetPassword({ token: rawToken, password }) {
     });
     await revokeAllSessions(tx, token.userId); // sign out everywhere
   });
+  await sendPasswordChangedEmail(token.user, { via: 'reset' });
 }
 
 // ─────────────────────────────── Profile ───────────────────────────────
@@ -291,6 +306,7 @@ export async function changePassword(ctx, { currentPassword, newPassword }) {
     await tx.user.update({ where: { id: ctx.userId }, data: { passwordHash: await hashPassword(newPassword) } });
     await revokeAllSessions(tx, ctx.userId, ctx.sessionId); // keep this device signed in
   });
+  await sendPasswordChangedEmail(ctx.user, { via: 'settings' });
 }
 
 // ─────────────────────────────── Invitations ───────────────────────────────
@@ -378,6 +394,14 @@ export async function acceptInvitation({ token: rawToken, password, firstName, l
       entityType: 'MEMBER',
       entityId: membership.id,
       metadata: {},
+    });
+    // Whoever invited them, and the people who manage invitations, hear that they joined.
+    const managers = await membersWithPermission(tx, membership.organizationId, 'USER_CREATE');
+    await notify(tx, {
+      organizationId: membership.organizationId, recipients: [membership.invitedById, ...managers], actorId: membership.id,
+      type: 'INVITATION_ACCEPTED', title: 'Invitation accepted',
+      message: `${fullName({ firstName: firstName || user.firstName, lastName: lastName || user.lastName })} joined ${membership.organization.name} as ${membership.role.name}.`,
+      link: '/team', entityType: 'MEMBER', entityId: membership.id, dedupeKey: `INVITATION_ACCEPTED:${membership.id}`,
     });
   });
   return { email: user.email, organizationName: membership.organization.name };

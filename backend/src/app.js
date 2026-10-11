@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -10,6 +11,7 @@ import { errorHandler, notFoundHandler } from './common/middleware/errorHandler.
 
 import authRoutes from './modules/auth/auth.routes.js';
 import organizationRoutes, { meRouter } from './modules/organizations/organization.routes.js';
+import notificationRoutes, { preferenceRouter } from './modules/notifications/notification.routes.js';
 import branchRoutes from './modules/branches/branch.routes.js';
 import memberRoutes from './modules/users/member.routes.js';
 import roleRoutes from './modules/roles/role.routes.js';
@@ -28,6 +30,7 @@ export function createApp() {
   app.set('trust proxy', 1); // correct client IPs for rate limiting behind one proxy
 
   app.use(helmet());
+  app.use(compression()); // gzip JSON/CSV responses over 1 KB (lists and dashboards shrink ~80%)
   app.use(cors({ origin: config.corsOrigins, credentials: true }));
   app.use(
     express.json({
@@ -59,6 +62,8 @@ export function createApp() {
   api.use('/payments', paymentRoutes);
   api.use('/activities', activityRoutes);
   api.use('/dashboard', dashboardRoutes);
+  api.use('/notifications', notificationRoutes);
+  api.use('/notification-preferences', preferenceRouter);
   api.use('/platform', platformRoutes);
   app.use('/api/v1', api);
 

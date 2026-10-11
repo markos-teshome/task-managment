@@ -4,7 +4,7 @@ import { randomToken, sha256 } from '../../common/utils/crypto.js';
 
 const TTL_MS = {
   EMAIL_VERIFICATION: 24 * 3_600_000,
-  PASSWORD_RESET: 3_600_000,
+  PASSWORD_RESET: 30 * 60_000,
   INVITATION: 7 * 24 * 3_600_000,
 };
 

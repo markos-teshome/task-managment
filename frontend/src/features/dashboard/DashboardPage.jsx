@@ -19,6 +19,7 @@ import { useDocumentTitle } from '../../hooks/useDocumentTitle.js';
 import { PROJECT_STATUS } from '../../lib/status.js';
 import { formatDate, greeting } from '../../lib/format.js';
 import { cn } from '../../lib/cn.js';
+import { onIntent, prefetchProject } from '../../app/preload.js';
 
 /** Current plan as a small chip next to the company name; links to billing for people who manage it. */
 function PlanChip({ plan, linked }) {
@@ -137,7 +138,7 @@ function ProjectsBlock({ projects, canCreate, onCreate }) {
         <ul className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface">
           {projects.map((p) => (
             <li key={p.id}>
-              <Link to={`/projects/${p.id}`} className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 px-3 py-2.5 hover:bg-canvas/70 sm:grid-cols-[minmax(0,1fr)_96px_160px_70px]">
+              <Link to={`/projects/${p.id}`} {...onIntent(() => prefetchProject(p.id))} className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 px-3 py-2.5 hover:bg-canvas/70 sm:grid-cols-[minmax(0,1fr)_96px_160px_70px]">
                 <span className="min-w-0">
                   <span className="block truncate text-[13.5px] font-medium">{p.name}</span>
                   <span className="block text-xs text-ink-subtle">

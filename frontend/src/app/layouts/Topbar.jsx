@@ -8,6 +8,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '../../c
 import { OrganizationSwitcher } from '../../features/organizations/OrganizationSwitcher.jsx';
 import { CreateOrganizationDialog } from '../../features/organizations/CreateOrganizationDialog.jsx';
 import { usePlatformAdmin } from '../../features/platform/PlatformAuth.jsx';
+import { NotificationBell } from '../../features/notifications/NotificationBell.jsx';
 
 /** Platform admins have no workspace; everyone else gets the organization switcher. */
 function WorkspaceSwitcher({ platform }) {
@@ -55,6 +56,8 @@ export function Topbar({ onOpenNav, onOpenSearch, showSearch, platform = false }
           <Button variant="ghost" size="icon" icon={Search} aria-label="Search" onClick={onOpenSearch} className="md:hidden" />
         </>
       )}
+
+      {workspace && <NotificationBell />}
 
       <Menu>
         <MenuTrigger className="flex items-center gap-2 rounded-md p-1 hover:bg-canvas">

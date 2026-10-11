@@ -10,6 +10,7 @@ import { Menu, MenuChoice, MenuContent, MenuTrigger } from '../../components/ui/
 import { PRIORITY, TASK_STATUS } from '../../lib/status.js';
 import { dueInfo } from '../../lib/format.js';
 import { cn } from '../../lib/cn.js';
+import { onIntent, prefetchTask } from '../../app/preload.js';
 
 /**
  * What the current user may do with a task — mirrors the API rules (the API still decides):
@@ -133,6 +134,7 @@ export function TaskTable({ tasks, loading, showProject = true, caption = 'Tasks
             <button
               type="button"
               onClick={() => openTask(t.id)}
+              {...onIntent(() => prefetchTask(t.id))}
               className={cn('block max-w-full truncate text-left font-medium hover:text-brand-700 hover:underline', t.status === 'COMPLETED' && 'text-ink-muted line-through decoration-ink-subtle/60')}
             >
               {t.title}
@@ -164,6 +166,7 @@ export function TaskTable({ tasks, loading, showProject = true, caption = 'Tasks
             <button
               type="button"
               onClick={() => openTask(t.id)}
+              {...onIntent(() => prefetchTask(t.id))}
               className={cn('block w-full text-left text-[14px] font-medium leading-snug', t.status === 'COMPLETED' && 'text-ink-muted line-through')}
             >
               {t.title}

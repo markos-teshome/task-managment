@@ -6,6 +6,7 @@ import { randomToken } from '../../common/utils/crypto.js';
 import { fullName, paginate } from '../../common/utils/http.js';
 import { assertPlanFitsUsage, activatePaidPlan } from '../subscriptions/subscription.service.js';
 import { ACTIONS, logActivity } from '../activities/activity.service.js';
+import { membersWithPermission, notify } from '../notifications/notification.service.js';
 import { chapaProvider } from './providers/chapa.provider.js';
 
 /**
@@ -187,6 +188,19 @@ export async function processPayment(txRef) {
       await activatePaidPlan(tx, { organizationId: payment.organizationId, plan: payment.plan, actorId: payment.initiatedById });
     } else if (result.status === 'FAILED') {
       await logActivity(tx, { ...base, action: ACTIONS.PAYMENT_FAILED, metadata: { plan: payment.plan.name, amount } });
+    }
+    // Billing holders (the payer included — it's their receipt) hear about confirmed outcomes only.
+    if (succeeded || result.status === 'FAILED') {
+      await notify(tx, {
+        organizationId: payment.organizationId,
+        recipients: await membersWithPermission(tx, payment.organizationId, 'BILLING_MANAGE'),
+        type: succeeded ? 'PAYMENT_SUCCEEDED' : 'PAYMENT_FAILED',
+        title: succeeded ? `Payment received — ${payment.plan.name} plan active` : 'Payment failed',
+        message: succeeded
+          ? `${amount} for the ${payment.plan.name} plan was confirmed. Reference ${payment.txRef}.`
+          : `The ${amount} payment for the ${payment.plan.name} plan did not go through, and your plan has not changed. You can try again from Plan & billing.`,
+        link: '/billing', entityType: 'PAYMENT', entityId: payment.id, dedupeKey: `PAYMENT:${payment.id}:${result.status}`,
+      });
     }
   });
 

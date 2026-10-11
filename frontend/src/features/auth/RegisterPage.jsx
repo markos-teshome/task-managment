@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { MailCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { AuthLayout } from './AuthLayout.jsx';
-import { PasswordInput } from './PasswordInput.jsx';
+import { PasswordChecklist, PasswordInput } from './PasswordInput.jsx';
 import { Field, FormAlert, Input } from '../../components/ui/Form.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { api } from '../../lib/api.js';
@@ -18,7 +18,7 @@ export function RegisterPage() {
   const [sentTo, setSentTo] = useState(null);
   const [error, setError] = useState(null);
   const form = useForm({ resolver: zodResolver(schema), defaultValues: { firstName: '', lastName: '', email: '', password: '' } });
-  const { register, handleSubmit, formState } = form;
+  const { register, handleSubmit, formState, watch } = form;
 
   const onSubmit = async (values) => {
     setError(null);
@@ -58,9 +58,12 @@ export function RegisterPage() {
         <Field label="Work email" error={formState.errors.email?.message}>
           <Input type="email" autoComplete="email" {...register('email')} />
         </Field>
-        <Field label="Password" hint="At least 8 characters, with letters and numbers." error={formState.errors.password?.message}>
-          <PasswordInput autoComplete="new-password" {...register('password')} />
-        </Field>
+        <div>
+          <Field label="Password" error={formState.errors.password?.message}>
+            <PasswordInput autoComplete="new-password" {...register('password')} />
+          </Field>
+          <PasswordChecklist value={watch('password')} />
+        </div>
         <Button type="submit" variant="primary" size="lg" className="w-full" loading={formState.isSubmitting}>
           Create account
         </Button>

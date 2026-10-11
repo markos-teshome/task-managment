@@ -17,6 +17,13 @@ export const password = z
   .refine((v) => Buffer.byteLength(v, 'utf8') <= 72, 'Password is too long')
   .refine((v) => /[A-Za-z]/.test(v) && /\d/.test(v), 'Password must contain letters and numbers');
 
+/** Platform admins (platform-wide authority) need a longer password: 12+ characters, letters and numbers. */
+export const platformPassword = z
+  .string()
+  .min(12, 'Use at least 12 characters')
+  .refine((v) => Buffer.byteLength(v, 'utf8') <= 72, 'Password is too long')
+  .refine((v) => /[A-Za-z]/.test(v) && /\d/.test(v), 'Use letters and numbers');
+
 export const personName = z.string().trim().min(1, 'Required').max(60);
 
 /** Spaces collapsed; must contain a letter or digit; no control characters. */
@@ -47,8 +54,9 @@ export const dateOnly = z
   .transform((v) => new Date(`${v}T00:00:00.000Z`))
   .refine((d) => !Number.isNaN(d.getTime()), 'Invalid date');
 
+/** Page numbers are capped so a crafted request can't force a huge offset scan; 100 rows per page at most. */
 export const pagination = {
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 };
 

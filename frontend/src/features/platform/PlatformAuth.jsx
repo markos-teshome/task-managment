@@ -1,5 +1,5 @@
 import { createContext, useContext, useState } from 'react';
-import { Navigate, Outlet, useNavigate } from 'react-router';
+import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -46,6 +46,7 @@ const codeSchema = z.object({ code: z.string().trim().regex(/^\d{6}$/, 'Enter th
 
 export function PlatformLoginPage() {
   const navigate = useNavigate();
+  const flash = useLocation().state?.message; // e.g. after a password reset
   const qc = useQueryClient();
   const [challenge, setChallenge] = useState(null);
   const [error, setError] = useState(null);
@@ -95,11 +96,20 @@ export function PlatformLoginPage() {
   return (
     <AuthLayout title="Platform console" subtitle="For TeamFlow administrators. Company accounts sign in on the main page.">
       <form onSubmit={credentials.handleSubmit(start)} noValidate className="space-y-4">
+        {flash && !error && <FormAlert tone="success">{flash}</FormAlert>}
         <FormAlert>{error}</FormAlert>
         <Field label="Email" error={credentials.formState.errors.email?.message}>
           <Input type="email" autoComplete="username" autoFocus {...credentials.register('email')} />
         </Field>
-        <Field label="Password" error={credentials.formState.errors.password?.message}>
+        <Field
+          label="Password"
+          error={credentials.formState.errors.password?.message}
+          labelAction={
+            <Link to="/platform/forgot-password" className="text-[12.5px] font-medium text-brand-700 hover:underline">
+              Forgot password?
+            </Link>
+          }
+        >
           <PasswordInput autoComplete="current-password" {...credentials.register('password')} />
         </Field>
         <Button type="submit" variant="primary" size="lg" className="w-full" loading={credentials.formState.isSubmitting}>

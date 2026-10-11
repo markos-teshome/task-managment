@@ -32,6 +32,8 @@ const ResolveBillingPage = page(() => import('../features/billing/ResolveBilling
 const ResolveBillingReturnPage = page(() => import('../features/billing/ResolveBillingPage.jsx'), 'ResolveBillingReturnPage');
 const NotificationsPage = page(() => import('../features/notifications/NotificationsPage.jsx'), 'NotificationsPage');
 const SettingsPage = page(() => import('../features/settings/SettingsPage.jsx'), 'SettingsPage');
+const PlatformForgotPasswordPage = page(() => import('../features/auth/PasswordPages.jsx'), 'PlatformForgotPasswordPage');
+const PlatformResetPasswordPage = page(() => import('../features/auth/PasswordPages.jsx'), 'PlatformResetPasswordPage');
 const PlatformLoginPage = page(() => import('../features/platform/PlatformAuth.jsx'), 'PlatformLoginPage');
 const PlatformOverviewPage = page(() => import('../features/platform/PlatformOverviewPage.jsx'), 'PlatformOverviewPage');
 const PlatformOrganizationsPage = page(() => import('../features/platform/PlatformOrganizationsPage.jsx'), 'PlatformOrganizationsPage');
@@ -73,6 +75,8 @@ export const router = createBrowserRouter([
   { path: '/accept-invite', element: standalone(<AcceptInvitePage />) },
   // Platform console: its own sign-in and session, independent of the tenant app's.
   { path: '/platform/login', element: standalone(<PlatformLoginPage />) },
+  { path: '/platform/forgot-password', element: standalone(<PlatformForgotPasswordPage />) },
+  { path: '/platform/reset-password', element: standalone(<PlatformResetPasswordPage />) },
   {
     path: '/platform',
     element: <RequirePlatformSession />,

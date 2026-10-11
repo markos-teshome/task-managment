@@ -32,14 +32,48 @@ export function useNotifications({ unread = false, page = 1, pageSize = 20 } = {
   });
 }
 
-/** Reading changes the count and every list: refresh them all after the server confirms. */
-function useNotificationMutation(fn) {
+/**
+ * Reading updates the badge and every cached list at once (optimistic), rolls back if the server refuses,
+ * and then re-reads the server's truth. `ids === null` means "all".
+ */
+function useReadMutation(fn, idsOf) {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: fn, onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }) });
+  const scope = useScope();
+  const root = ['notifications', scope];
+  return useMutation({
+    mutationFn: fn,
+    onMutate: async (arg) => {
+      await qc.cancelQueries({ queryKey: root }); // an in-flight older answer must not overwrite this
+      const snapshot = qc.getQueriesData({ queryKey: root });
+      const ids = idsOf(arg);
+      const hits = (n) => !n.read && (ids === null || ids.includes(n.id));
+      // How many unread ones this changes (from any cached list; "all" clears the count).
+      const changed = new Set();
+      for (const [key, data] of snapshot) if (key[2] === 'list') data?.items.filter(hits).forEach((n) => changed.add(n.id));
+      qc.setQueriesData({ queryKey: [...root, 'list'] }, (data) => data && { ...data, items: data.items.map((n) => (hits(n) ? { ...n, read: true } : n)) });
+      qc.setQueryData([...root, 'unread-count'], (data) => data && { count: ids === null ? 0 : Math.max(0, data.count - changed.size) });
+      return { snapshot };
+    },
+    onError: (_err, _arg, ctx) => ctx?.snapshot.forEach(([key, data]) => qc.setQueryData(key, data)),
+    onSettled: () => qc.invalidateQueries({ queryKey: root }),
+  });
 }
 
-export const useMarkRead = () => useNotificationMutation((id) => api.patch(`/notifications/${id}/read`));
-export const useMarkAllRead = () => useNotificationMutation(() => api.patch('/notifications/read-all'));
+export const useMarkRead = () => useReadMutation((id) => api.patch(`/notifications/${id}/read`), (id) => [id]);
+export const useMarkAllRead = () => useReadMutation(() => api.patch('/notifications/read-all'), () => null);
+
+/** Warm the bell's list on hover/focus so it opens with content. */
+export function usePrefetchBell() {
+  const qc = useQueryClient();
+  const scope = useScope();
+  return () =>
+    scope &&
+    qc.prefetchQuery({
+      queryKey: ['notifications', scope, 'list', { unread: false, page: 1, pageSize: 8 }],
+      queryFn: () => api.list('/notifications', { page: 1, pageSize: 8 }),
+      staleTime: 10_000,
+    });
+}
 
 export function usePreferences() {
   const scope = useScope();

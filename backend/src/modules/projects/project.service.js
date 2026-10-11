@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError, Errors } from '../../common/errors/AppError.js';
-import { fullName, paginate, startOfTodayUtc } from '../../common/utils/http.js';
+import { fullName, paginate, stableOrder, startOfTodayUtc } from '../../common/utils/http.js';
 import { assertCanCreateProject } from '../subscriptions/entitlement.service.js';
 import { resolveActiveMembers } from '../users/member.service.js';
 import { assertBranchUsable } from '../branches/branch.service.js';
@@ -139,7 +139,7 @@ export async function listProjects(ctx, query) {
     }),
   };
   const [items, total] = await prisma.$transaction([
-    prisma.project.findMany({ where, include: listInclude, orderBy: SORTS[query.sort](query.order), skip, take }),
+    prisma.project.findMany({ where, include: listInclude, orderBy: stableOrder(SORTS[query.sort](query.order)), skip, take }),
     prisma.project.count({ where }),
   ]);
   const stats = await taskStats(items.map((p) => p.id));

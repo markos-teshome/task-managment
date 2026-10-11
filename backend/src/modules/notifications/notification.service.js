@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { Errors } from '../../common/errors/AppError.js';
-import { paginate } from '../../common/utils/http.js';
+import { paginate, stableOrder } from '../../common/utils/http.js';
 import { CATEGORIES, TYPES, channelsFor } from './notification.catalog.js';
 import { kickDelivery } from './notification.delivery.js';
 
@@ -80,7 +80,7 @@ export async function listNotifications(ctx, query) {
   const { skip, take, meta } = paginate(query);
   const where = { ...mine(ctx), ...(query.unread && { readAt: null }) };
   const [items, total] = await prisma.$transaction([
-    prisma.notification.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
+    prisma.notification.findMany({ where, orderBy: stableOrder({ createdAt: 'desc' }, 'desc'), skip, take }),
     prisma.notification.count({ where }),
   ]);
   return { items: items.map(present), meta: meta(total) };

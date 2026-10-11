@@ -3,7 +3,7 @@ import { config } from '../../config/env.js';
 import { mailerStatus } from '../../lib/mailer.js';
 import { internalErrorSummary } from '../../lib/errorLog.js';
 import { Errors } from '../../common/errors/AppError.js';
-import { paginate } from '../../common/utils/http.js';
+import { paginate, stableOrder } from '../../common/utils/http.js';
 import { displayStatus } from '../subscriptions/entitlement.service.js';
 import { presentPlan } from '../subscriptions/subscription.service.js';
 import { ACTIONS, logActivity } from '../activities/activity.service.js';
@@ -119,7 +119,7 @@ export async function listOrganizations(query) {
     ...(query.closureRequested && { closureRequestedAt: { not: null }, status: { not: 'CLOSED' } }),
   };
   const [items, total] = await prisma.$transaction([
-    prisma.organization.findMany({ where, select: orgSelect, orderBy: { createdAt: 'desc' }, skip, take }),
+    prisma.organization.findMany({ where, select: orgSelect, orderBy: stableOrder({ createdAt: 'desc' }, 'desc'), skip, take }),
     prisma.organization.count({ where }),
   ]);
   return { items: items.map(presentOrg), meta: meta(total) };
@@ -225,7 +225,7 @@ export async function listSubscriptions(query) {
         organization: { select: { id: true, name: true, status: true } },
         plan: { select: { code: true, name: true, priceCents: true, currency: true } },
       },
-      orderBy: [{ currentPeriodEnd: { sort: 'asc', nulls: 'last' } }],
+      orderBy: stableOrder({ currentPeriodEnd: { sort: 'asc', nulls: 'last' } }),
       skip,
       take,
     }),
@@ -308,7 +308,7 @@ export async function listPayments(query) {
         organization: { select: { id: true, name: true } },
         plan: { select: { name: true } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: stableOrder({ createdAt: 'desc' }, 'desc'),
       skip,
       take,
     }),
@@ -330,7 +330,7 @@ export async function listAuditLog(query) {
     prisma.platformAuditLog.findMany({
       where,
       include: { actor: { select: { email: true, firstName: true, lastName: true } } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: stableOrder({ createdAt: 'desc' }, 'desc'),
       skip,
       take,
     }),

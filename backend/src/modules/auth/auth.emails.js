@@ -102,3 +102,38 @@ export function sendPlatformLoginCode(admin, code) {
 </td></tr></table></td></tr></table></body></html>`;
   return sendMail({ to: admin.email, template: 'platform-login-code', subject: `${code} is your TeamFlow platform sign-in code`, text, html });
 }
+
+/** Platform admin recovery link: 15 minutes, single use, opens the platform reset page (never the tenant one). */
+export const sendPlatformPasswordResetEmail = (admin, token) =>
+  sendMail({
+    to: admin.email,
+    template: 'platform-reset-password',
+    subject: 'Reset your TeamFlow platform password',
+    ...compose({
+      greeting: `Hi ${admin.firstName},`,
+      lines: ['We received a request to reset the password of your TeamFlow platform console account.'],
+      action: 'Choose a new password',
+      url: link('/platform/reset-password', token),
+      footnote:
+        "This link expires in 15 minutes and can be used once. Signing in will still need the code we email you. If you didn't request this, ignore this email — your password stays the same — and tell the platform team.",
+    }),
+  });
+
+/** Security notice after a platform admin's password was reset. Never contains the password. */
+export const sendPlatformPasswordChangedEmail = (admin) =>
+  sendMail({
+    to: admin.email,
+    template: 'platform-password-changed',
+    subject: 'Your TeamFlow platform password was changed',
+    ...compose({
+      greeting: `Hi ${admin.firstName},`,
+      lines: [
+        'The password of your TeamFlow platform console account was just reset with a link sent to this address. All platform sessions were signed out.',
+        "If this was you, there's nothing more to do.",
+        "If it wasn't you, reset your password again now and tell the platform team immediately.",
+      ],
+      action: 'Go to platform sign-in',
+      url: `${config.APP_URL}/platform/login`,
+      footnote: 'TeamFlow never asks for your password by email.',
+    }),
+  });

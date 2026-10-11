@@ -5,7 +5,7 @@ import { PageHeader, Toolbar } from '../../components/layout/PageHeader.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Badge, StatusBadge } from '../../components/ui/Badge.jsx';
 import { DataTable } from '../../components/ui/DataTable.jsx';
-import { FilterSelect, Pagination, SearchInput } from '../../components/ui/Misc.jsx';
+import { FilterSelect, Pagination, SearchInput, usePageRecovery } from '../../components/ui/Misc.jsx';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '../../components/ui/Menu.jsx';
 import { EmptyState, ErrorState } from '../../components/feedback/States.jsx';
 import { useUrlFilters } from '../../hooks/useUrlFilters.js';
@@ -18,8 +18,9 @@ import { OrganizationStatusDialog, usePlatformQuery } from './shared.jsx';
 export function PlatformOrganizationsPage() {
   useDocumentTitle('Organizations');
   const navigate = useNavigate();
-  const { filters, setFilters, clear, activeCount } = useUrlFilters(['search', 'status', 'planCode', 'closureRequested', 'page']);
-  const { data, isLoading, isFetching, error, refetch } = usePlatformQuery('/organizations', { ...filters, pageSize: 25 });
+  const { filters, setFilters, clear, activeCount } = useUrlFilters(['search', 'status', 'planCode', 'closureRequested', 'page', 'pageSize']);
+  const { data, isLoading, isFetching, error, refetch } = usePlatformQuery('/organizations', { ...filters, pageSize: filters.pageSize ?? 20 });
+  const pastEnd = usePageRecovery(data?.meta, (page) => setFilters({ page }));
   const plans = usePlatformQuery('/plans');
   const [changing, setChanging] = useState(null);
 
@@ -83,7 +84,7 @@ export function PlatformOrganizationsPage() {
       </Toolbar>
       {error ? (
         <ErrorState error={error} onRetry={refetch} />
-      ) : !isLoading && data.items.length === 0 ? (
+      ) : !isLoading && !pastEnd && data.items.length === 0 ? (
         activeCount ? (
           <EmptyState icon={SearchX} title="No companies match" description="Try another name, plan or status." action={<Button size="sm" onClick={clear}>Clear filters</Button>} />
         ) : (
@@ -108,9 +109,9 @@ export function PlatformOrganizationsPage() {
               </div>
             )}
           />
-          <Pagination meta={data?.meta} onPageChange={(page) => setFilters({ page })} />
         </div>
       )}
+      {!error && <Pagination meta={data?.meta} onPageChange={(page) => setFilters({ page })} onPageSizeChange={(pageSize) => setFilters({ pageSize: pageSize === 20 ? undefined : pageSize })} />}
       <OrganizationStatusDialog org={changing} onClose={() => setChanging(null)} />
     </>
   );

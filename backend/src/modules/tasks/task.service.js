@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { Errors } from '../../common/errors/AppError.js';
 import { FEATURES } from '../../common/constants/plans.js';
-import { addDays, fullName, paginate, startOfTodayUtc } from '../../common/utils/http.js';
+import { addDays, fullName, paginate, stableOrder, startOfTodayUtc } from '../../common/utils/http.js';
 import { assertFeature } from '../subscriptions/entitlement.service.js';
 import { resolveActiveMembers } from '../users/member.service.js';
 import { assertCanManageProject, canManageProject, visibleProjectsWhere } from '../projects/project.service.js';
@@ -103,7 +103,7 @@ export async function listTasks(ctx, query) {
   const { skip, take, meta } = paginate(query);
   const where = buildListWhere(ctx, query);
   const [items, total] = await prisma.$transaction([
-    prisma.task.findMany({ where, include: taskIncludeFor(ctx), orderBy: SORTS[query.sort](query.order), skip, take }),
+    prisma.task.findMany({ where, include: taskIncludeFor(ctx), orderBy: stableOrder(SORTS[query.sort](query.order)), skip, take }),
     prisma.task.count({ where }),
   ]);
   return { items: items.map((t) => present(t, ctx)), meta: meta(total) };

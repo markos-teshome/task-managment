@@ -14,7 +14,7 @@ import { Button } from '../../components/ui/Button.jsx';
 import { PriorityLabel, StatusBadge } from '../../components/ui/Badge.jsx';
 import { Avatar } from '../../components/ui/Avatar.jsx';
 import { Progress } from '../../components/ui/Progress.jsx';
-import { FilterSelect, SearchInput, Skeleton, Tabs, Pagination } from '../../components/ui/Misc.jsx';
+import { FilterSelect, Pagination, SearchInput, Skeleton, Tabs, usePageRecovery } from '../../components/ui/Misc.jsx';
 import { Field, Input } from '../../components/ui/Form.jsx';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '../../components/ui/Menu.jsx';
 import { ConfirmDialog, Modal, DialogBody, DialogFooter, DialogClose } from '../../components/ui/Dialog.jsx';
@@ -285,8 +285,10 @@ function TasksTab({ project }) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [creating, setCreating] = useState(false);
-  const { data, isLoading, error, refetch } = useTasks({ projectId: project.id, search, status, page, pageSize: 50, sort: 'dueDate', order: 'asc' });
+  const { data, isLoading, error, refetch } = useTasks({ projectId: project.id, search, status, page, pageSize, sort: 'dueDate', order: 'asc' });
+  const pastEnd = usePageRecovery(data?.meta, setPage);
   // D-3/D-6: tasks are created in projects the person manages or is on; archived projects are read-only.
   const canCreate = can('TASK_CREATE') && project.inScope && !project.archivedAt;
 
@@ -303,7 +305,7 @@ function TasksTab({ project }) {
       </div>
       {error ? (
         <ErrorState error={error} onRetry={refetch} />
-      ) : !isLoading && data.items.length === 0 ? (
+      ) : !isLoading && !pastEnd && data.items.length === 0 ? (
         search || status ? (
           <EmptyState compact icon={SearchX} title="No matching tasks" description="Try a different search or status." />
         ) : (
@@ -317,9 +319,9 @@ function TasksTab({ project }) {
       ) : (
         <>
           <TaskTable tasks={data?.items} loading={isLoading} showProject={false} caption={`Tasks in ${project.name}`} />
-          <Pagination meta={data?.meta} onPageChange={setPage} />
         </>
       )}
+      {!error && <Pagination meta={data?.meta} onPageChange={setPage} onPageSizeChange={(n) => (setPageSize(n), setPage(1))} />}
       <TaskFormModal open={creating} onOpenChange={setCreating} projectId={project.id} />
     </>
   );

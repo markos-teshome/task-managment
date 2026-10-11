@@ -10,6 +10,7 @@ const router = Router();
 
 const listQuery = z.object({
   ...pagination,
+  cursor: id.optional(), // timeline: continue after this entry (stable while new entries arrive)
   actorId: id.optional(),
   projectId: id.optional(),
   entityId: id.optional(),

@@ -15,6 +15,7 @@
  */
 import { prisma } from '../src/lib/prisma.js';
 import { hashPassword } from '../src/common/utils/crypto.js';
+import { platformPassword } from '../src/common/validators/index.js';
 import { PLATFORM_ACTIONS, recordPlatformAction } from '../src/modules/platform/platform.service.js';
 
 const [command, rawEmail, firstName, lastName] = process.argv.slice(2);
@@ -24,7 +25,7 @@ const audit = (tx, action, admin) =>
 
 function passwordFromEnv() {
   const password = process.env.PLATFORM_ADMIN_PASSWORD ?? '';
-  if (password.length < 12 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+  if (!platformPassword.safeParse(password).success) {
     throw new Error('Set PLATFORM_ADMIN_PASSWORD (at least 12 characters, with letters and numbers).');
   }
   return password;

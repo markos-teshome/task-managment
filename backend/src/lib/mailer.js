@@ -15,9 +15,6 @@ const smtp = config.isTest
       port: config.SMTP_PORT,
       secure: config.SMTP_PORT === 465, // implicit TLS on 465, STARTTLS otherwise
       auth: { user: config.SMTP_USER, pass: config.SMTP_PASS },
-      tls: {
-        rejectUnauthorized: false,
-      },
     });
 
 /** Last start-up check, shown in the platform health view. */

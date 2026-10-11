@@ -9,7 +9,7 @@ import { Button } from '../../components/ui/Button.jsx';
 import { Badge, StatusBadge } from '../../components/ui/Badge.jsx';
 import { DataTable } from '../../components/ui/DataTable.jsx';
 import { Field, FormAlert, Input, Checkbox } from '../../components/ui/Form.jsx';
-import { FilterSelect, Pagination, SearchInput } from '../../components/ui/Misc.jsx';
+import { FilterSelect, Pagination, SearchInput, usePageRecovery } from '../../components/ui/Misc.jsx';
 import { Modal, DialogBody, DialogFooter, DialogClose } from '../../components/ui/Dialog.jsx';
 import { EmptyState, ErrorState } from '../../components/feedback/States.jsx';
 import { useUrlFilters } from '../../hooks/useUrlFilters.js';
@@ -26,8 +26,9 @@ const SUB_FILTERS = [
 
 export function PlatformSubscriptionsPage() {
   useDocumentTitle('Subscriptions');
-  const { filters, setFilters, clear, activeCount } = useUrlFilters(['status', 'planCode', 'endingWithinDays', 'page']);
-  const { data, isLoading, error, refetch } = usePlatformQuery('/subscriptions', { ...filters, pageSize: 25 });
+  const { filters, setFilters, clear, activeCount } = useUrlFilters(['status', 'planCode', 'endingWithinDays', 'page', 'pageSize']);
+  const { data, isLoading, error, refetch } = usePlatformQuery('/subscriptions', { ...filters, pageSize: filters.pageSize ?? 20 });
+  const pastEnd = usePageRecovery(data?.meta, (page) => setFilters({ page }));
   const plans = usePlatformQuery('/plans');
 
   const columns = [
@@ -59,7 +60,7 @@ export function PlatformSubscriptionsPage() {
       </Toolbar>
       {error ? (
         <ErrorState error={error} onRetry={refetch} />
-      ) : !isLoading && data.items.length === 0 ? (
+      ) : !isLoading && !pastEnd && data.items.length === 0 ? (
         <EmptyState icon={activeCount ? SearchX : Repeat} title={activeCount ? 'No subscriptions match' : 'No subscriptions yet'} />
       ) : (
         <>
@@ -79,17 +80,18 @@ export function PlatformSubscriptionsPage() {
               </div>
             )}
           />
-          <Pagination meta={data?.meta} onPageChange={(page) => setFilters({ page })} />
         </>
       )}
+      {!error && <Pagination meta={data?.meta} onPageChange={(page) => setFilters({ page })} onPageSizeChange={(pageSize) => setFilters({ pageSize: pageSize === 20 ? undefined : pageSize })} />}
     </>
   );
 }
 
 export function PlatformPaymentsPage() {
   useDocumentTitle('Payments');
-  const { filters, setFilters, clear, activeCount } = useUrlFilters(['search', 'status', 'page']);
-  const { data, isLoading, error, refetch } = usePlatformQuery('/payments', { ...filters, pageSize: 25 });
+  const { filters, setFilters, clear, activeCount } = useUrlFilters(['search', 'status', 'page', 'pageSize']);
+  const { data, isLoading, error, refetch } = usePlatformQuery('/payments', { ...filters, pageSize: filters.pageSize ?? 20 });
+  const pastEnd = usePageRecovery(data?.meta, (page) => setFilters({ page }));
 
   const columns = [
     { key: 'date', header: 'Date', className: 'w-32', cell: (p) => formatLongDate(p.createdAt) },
@@ -113,7 +115,7 @@ export function PlatformPaymentsPage() {
       </Toolbar>
       {error ? (
         <ErrorState error={error} onRetry={refetch} />
-      ) : !isLoading && data.items.length === 0 ? (
+      ) : !isLoading && !pastEnd && data.items.length === 0 ? (
         <EmptyState icon={activeCount ? SearchX : Receipt} title={activeCount ? 'No payments match' : 'No payments yet'} />
       ) : (
         <>
@@ -132,9 +134,9 @@ export function PlatformPaymentsPage() {
               </div>
             )}
           />
-          <Pagination meta={data?.meta} onPageChange={(page) => setFilters({ page })} />
         </>
       )}
+      {!error && <Pagination meta={data?.meta} onPageChange={(page) => setFilters({ page })} onPageSizeChange={(pageSize) => setFilters({ pageSize: pageSize === 20 ? undefined : pageSize })} />}
     </>
   );
 }

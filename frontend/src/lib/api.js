@@ -50,6 +50,7 @@ const FALLBACK_MESSAGES = {
 };
 
 const NO_REFRESH = ['/auth/login', '/auth/refresh', '/auth/logout'];
+const REQUEST_TIMEOUT_MS = 45_000; // generous: payment checkout calls Chapa, and a sleeping database takes a few seconds to wake
 const BLOCKING_CODES = ['MEMBERSHIP_INACTIVE', 'ORGANIZATION_SUSPENDED', 'ORGANIZATION_CLOSED', 'NO_WORKSPACE'];
 
 function buildUrl(path, query) {
@@ -86,6 +87,9 @@ async function send(path, { method = 'GET', body, query, signal, retry = true, w
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
 
+  // A request that never answers (API or database hung) ends as an error the UI can show with Retry,
+  // instead of a page that loads forever. The caller's own cancellation (e.g. leaving the page) still applies.
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   let res;
   try {
     res = await fetch(buildUrl(path, query), {
@@ -93,9 +97,10 @@ async function send(path, { method = 'GET', body, query, signal, retry = true, w
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       credentials: 'include',
-      signal,
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
   } catch (err) {
+    if (timeout.aborted) throw new ApiError({ status: 0, code: 'TIMEOUT', message: 'TeamFlow is taking too long to respond. Check your connection and try again.' });
     if (err.name === 'AbortError') throw err;
     throw new ApiError({ status: 0, code: 'NETWORK_ERROR', message: FALLBACK_MESSAGES[0] });
   }

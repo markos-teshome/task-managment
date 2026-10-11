@@ -44,3 +44,14 @@ export async function knownPlatformCode(email, code = '246810') {
   });
   return code;
 }
+
+/** Platform admin reset link, issued the same way the API does (random token, only its SHA-256 stored, 15 minutes). */
+export async function platformResetLink(email) {
+  const admin = await prisma.platformAdmin.findUnique({ where: { email } });
+  const raw = crypto.randomBytes(32).toString('base64url');
+  await prisma.platformPasswordReset.deleteMany({ where: { adminId: admin.id, usedAt: null } });
+  await prisma.platformPasswordReset.create({
+    data: { adminId: admin.id, tokenHash: crypto.createHash('sha256').update(raw).digest('hex'), expiresAt: new Date(Date.now() + 15 * 60_000) },
+  });
+  return `/platform/reset-password?token=${raw}`;
+}

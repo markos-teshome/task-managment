@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { visibleProjectsWhere } from '../projects/project.service.js';
-import { fullName, paginate } from '../../common/utils/http.js';
+import { fullName, paginate, stableOrder } from '../../common/utils/http.js';
+import { Errors } from '../../common/errors/AppError.js';
 
 export const ACTIONS = {
   ORGANIZATION_CREATED: 'ORGANIZATION_CREATED',
@@ -168,11 +169,27 @@ export async function listActivities(ctx, query) {
     }),
   };
 
-  const [items, total] = await prisma.$transaction([
-    prisma.activityLog.findMany({ where, include: actorInclude, orderBy: { createdAt: 'desc' }, skip, take }),
+  // Cursor mode (the timeline's "Load more"): entries strictly older than the cursor entry, by (createdAt, id).
+  // The cursor must be an entry this caller can see, so it can't be used to probe other tenants.
+  let after = null;
+  if (query.cursor) {
+    const c = await prisma.activityLog.findFirst({ where: { id: query.cursor, ...where }, select: { id: true, createdAt: true } });
+    if (!c) throw Errors.badRequest('This list has changed. Reload to see the latest activity.', 'INVALID_CURSOR');
+    after = { OR: [{ createdAt: { lt: c.createdAt } }, { createdAt: c.createdAt, id: { lt: c.id } }] };
+  }
+  const [rows, total] = await prisma.$transaction([
+    prisma.activityLog.findMany({
+      where: after ? { AND: [where, after] } : where,
+      include: actorInclude,
+      orderBy: stableOrder({ createdAt: 'desc' }, 'desc'),
+      ...(after ? {} : { skip }),
+      take: take + 1, // one extra row tells whether more follow
+    }),
     prisma.activityLog.count({ where }),
   ]);
-  return { items: items.map(presentActivity), meta: meta(total) };
+  const more = rows.length > take;
+  const items = more ? rows.slice(0, take) : rows;
+  return { items: items.map(presentActivity), meta: { ...meta(total), nextCursor: more ? items[items.length - 1].id : null } };
 }
 
 /** Latest entries for the dashboard (scoped like the history) or for one project the caller can already see. */

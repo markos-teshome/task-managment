@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError, Errors } from '../../common/errors/AppError.js';
 import { OWNER_ROLE_KEY } from '../../common/constants/permissions.js';
-import { fullName, paginate } from '../../common/utils/http.js';
+import { fullName, paginate, stableOrder } from '../../common/utils/http.js';
 import { assertCanAddUsers, lockOrganization } from '../subscriptions/entitlement.service.js';
 import { assertWithinOwnPermissions } from '../roles/role.service.js';
 import { issueAuthToken } from '../auth/authToken.service.js';
@@ -68,7 +68,7 @@ export async function listMembers(ctx, query) {
         ...pendingInvitationToken,
         _count: { select: { assignedTasks: { where: { status: { not: 'COMPLETED' } } } } },
       },
-      orderBy: [{ status: 'asc' }, { user: { firstName: 'asc' } }],
+      orderBy: stableOrder([{ status: 'asc' }, { user: { firstName: 'asc' } }, { user: { lastName: 'asc' } }]),
       skip,
       take,
     }),

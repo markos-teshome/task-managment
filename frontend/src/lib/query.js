@@ -5,7 +5,7 @@ export const queryClient = new QueryClient({
     queries: {
       staleTime: 30_000,
       // Retry only transient failures (network/5xx); 4xx answers are final.
-      retry: (count, err) => (err?.status === 0 || err?.status >= 500) && count < 2,
+      retry: (count, err) => err?.code !== 'TIMEOUT' && (err?.status === 0 || err?.status >= 500) && count < 2, // a timeout already waited long enough
       refetchOnWindowFocus: true,
     },
     mutations: { retry: false },

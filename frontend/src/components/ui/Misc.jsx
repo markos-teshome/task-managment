@@ -86,22 +86,112 @@ export function FilterSelect({ label, value, onChange, options, allLabel, classN
   );
 }
 
-export function Pagination({ meta, onPageChange, className }) {
-  if (!meta || meta.totalPages <= 1) return null;
-  const from = (meta.page - 1) * meta.pageSize + 1;
+export const PAGE_SIZES = [10, 20, 50, 100];
+
+/** Page numbers to show: first, last, current ±1, with gaps ("…") where pages are skipped. */
+function pageWindow(page, total) {
+  const pages = new Set([1, total, page - 1, page, page + 1].filter((p) => p >= 1 && p <= total));
+  const sorted = [...pages].sort((a, b) => a - b);
+  const out = [];
+  sorted.forEach((p, i) => {
+    if (i && p - sorted[i - 1] > 1) out.push(p - sorted[i - 1] === 2 ? p - 1 : `gap-${p}`);
+    out.push(p);
+  });
+  return out;
+}
+
+/** True while a list shows a page past its end (e.g. its last row was just deleted). */
+export const isPastLastPage = (meta) => !!meta && meta.page > 1 && meta.page > meta.totalPages;
+
+/**
+ * Moves a list to its last real page when the current one no longer exists — after deleting the last row,
+ * a stale link, or switching to a workspace with fewer records. Lists call it themselves too, because an
+ * empty page may render something other than the footer.
+ */
+export function usePageRecovery(meta, onPageChange) {
+  const change = useRef(onPageChange);
+  change.current = onPageChange;
+  const past = isPastLastPage(meta);
+  useEffect(() => {
+    if (past) change.current(meta.totalPages);
+  }, [past, meta?.totalPages]);
+  return past;
+}
+
+/**
+ * One pagination footer for every list, always shown once the list has loaded: "Showing 21–40 of 125"
+ * ("Showing 0 of 0" when empty), numbered pages ("Page x of y" on phones), Previous/Next (disabled at the
+ * ends) and, when `onPageSizeChange` is given, rows per page. If the current page no longer exists it moves
+ * to the last real page (see usePageRecovery).
+ */
+export function Pagination({ meta, onPageChange, onPageSizeChange, className }) {
+  const outOfRange = usePageRecovery(meta, onPageChange);
+  if (!meta || outOfRange) return null;
+  const empty = meta.total === 0;
+  const from = empty ? 0 : (meta.page - 1) * meta.pageSize + 1;
   const to = Math.min(meta.page * meta.pageSize, meta.total);
+  const totalPages = Math.max(1, meta.totalPages);
+  const numberClass = (active) =>
+    cn(
+      'inline-flex h-8 min-w-8 items-center justify-center rounded-md px-2 text-[13px] tabular-nums transition-colors disabled:cursor-default',
+      active ? 'bg-brand-800 font-semibold text-white' : 'text-ink-muted hover:bg-canvas hover:text-ink',
+    );
+
   return (
-    <nav aria-label="Pagination" className={cn('flex items-center justify-between gap-3 py-3 text-[13px] text-ink-muted', className)}>
-      <span>
-        <span className="tabular-nums">{from}–{to}</span> of <span className="tabular-nums">{meta.total}</span>
+    <nav aria-label="Pagination" className={cn('flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 text-[13px] text-ink-muted', className)}>
+      <span aria-live="polite">
+        Showing{' '}
+        {empty ? (
+          <span className="tabular-nums text-ink">0</span>
+        ) : (
+          <span className="tabular-nums text-ink">{from}–{to}</span>
+        )}{' '}
+        of <span className="tabular-nums text-ink">{meta.total}</span>
       </span>
-      <div className="flex gap-1">
-        <Button size="sm" variant="secondary" icon={ChevronLeft} disabled={meta.page <= 1} onClick={() => onPageChange(meta.page - 1)}>
-          Previous
-        </Button>
-        <Button size="sm" variant="secondary" iconRight={ChevronRight} disabled={meta.page >= meta.totalPages} onClick={() => onPageChange(meta.page + 1)}>
-          Next
-        </Button>
+      <div className="flex items-center gap-3">
+        {onPageSizeChange && (
+          <label className="flex items-center gap-1.5">
+            <span className="max-sm:sr-only">Rows per page</span>
+            <select
+              value={meta.pageSize}
+              onChange={(e) => onPageSizeChange(Number(e.target.value))}
+              className="h-9 rounded-md border border-line-strong bg-surface px-1.5 text-[13px] text-ink focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 sm:h-8"
+            >
+              {[...new Set([...PAGE_SIZES, meta.pageSize])].sort((a, b) => a - b).map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="secondary" icon={ChevronLeft} disabled={meta.page <= 1} onClick={() => onPageChange(meta.page - 1)} aria-label="Previous page">
+            <span className="max-sm:sr-only">Previous</span>
+          </Button>
+          <ol className="hidden items-center gap-0.5 sm:flex">
+            {pageWindow(meta.page, totalPages).map((p) =>
+              typeof p === 'string' ? (
+                <li key={p} className="px-1 text-ink-subtle" aria-hidden="true">…</li>
+              ) : (
+                <li key={p}>
+                  <button
+                    type="button"
+                    className={numberClass(p === meta.page)}
+                    aria-current={p === meta.page ? 'page' : undefined}
+                    aria-label={`Page ${p}`}
+                    disabled={p === meta.page}
+                    onClick={() => onPageChange(p)}
+                  >
+                    {p}
+                  </button>
+                </li>
+              ),
+            )}
+          </ol>
+          <span className="px-1 tabular-nums sm:hidden">Page {meta.page} of {totalPages}</span>
+          <Button size="sm" variant="secondary" iconRight={ChevronRight} disabled={meta.page >= totalPages} onClick={() => onPageChange(meta.page + 1)} aria-label="Next page">
+            <span className="max-sm:sr-only">Next</span>
+          </Button>
+        </div>
       </div>
     </nav>
   );

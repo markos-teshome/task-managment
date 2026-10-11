@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import * as DM from '@radix-ui/react-dropdown-menu';
 import { Bell, Check, CheckCheck } from 'lucide-react';
 import { toast } from 'sonner';
-import { useMarkAllRead, useMarkRead, useNotifications, useUnreadCount } from './api.js';
+import { useMarkAllRead, useMarkRead, usePrefetchBell, useNotifications, useUnreadCount } from './api.js';
 import { NotificationIcon } from './NotificationItem.jsx';
 import { Skeleton } from '../../components/ui/Misc.jsx';
 import { relativeTime } from '../../lib/format.js';
@@ -31,11 +31,15 @@ export function NotificationBell() {
   const list = useNotifications({ unread: unreadOnly, pageSize: 8 }, { enabled: open });
   const markAll = useMarkAllRead();
   const openNotification = useOpenNotification();
+  const markRead = useMarkRead();
+  const prefetch = usePrefetchBell();
   const items = list.data?.items ?? [];
 
   return (
     <DM.Root open={open} onOpenChange={setOpen}>
       <DM.Trigger
+        onPointerEnter={prefetch}
+        onFocus={prefetch}
         aria-label={count ? `Notifications, ${count} unread` : 'Notifications'}
         className="relative inline-flex h-9 w-9 items-center justify-center rounded-md text-ink-muted outline-none hover:bg-canvas hover:text-ink focus-visible:ring-2 focus-visible:ring-brand-500/40"
       >
@@ -57,17 +61,18 @@ export function NotificationBell() {
             <DM.Label className="text-[13px] font-semibold">
               Notifications {count > 0 && <span className="ml-1 rounded bg-brand-50 px-1 text-[11px] font-medium text-brand-700 tabular-nums">{count} unread</span>}
             </DM.Label>
-            <DM.CheckboxItem
-              checked={unreadOnly}
-              onCheckedChange={setUnreadOnly}
-              onSelect={(e) => e.preventDefault()}
-              className={cn('flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[12px] outline-none data-[highlighted]:bg-canvas', unreadOnly ? 'font-medium text-brand-800' : 'text-ink-muted')}
-            >
-              <DM.ItemIndicator>
-                <Check size={12} aria-hidden="true" />
-              </DM.ItemIndicator>
-              Unread only
-            </DM.CheckboxItem>
+            <DM.RadioGroup value={unreadOnly ? 'unread' : 'all'} onValueChange={(v) => setUnreadOnly(v === 'unread')} className="flex rounded-md bg-canvas p-0.5" aria-label="Show">
+              {[['all', 'All'], ['unread', 'Unread']].map(([value, label]) => (
+                <DM.RadioItem
+                  key={value}
+                  value={value}
+                  onSelect={(e) => e.preventDefault()}
+                  className="cursor-pointer rounded px-2 py-0.5 text-[12px] text-ink-muted outline-none data-[highlighted]:text-ink data-[state=checked]:bg-surface data-[state=checked]:font-medium data-[state=checked]:text-brand-800 data-[state=checked]:shadow-xs"
+                >
+                  {label}
+                </DM.RadioItem>
+              ))}
+            </DM.RadioGroup>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-1">
@@ -88,19 +93,32 @@ export function NotificationBell() {
               </p>
             ) : (
               items.map((n) => (
-                <DM.Item
-                  key={n.id}
-                  onSelect={() => openNotification(n)}
-                  className="flex cursor-pointer gap-2.5 rounded-md px-2 py-2 outline-none data-[highlighted]:bg-canvas"
-                >
-                  <NotificationIcon notification={n} />
-                  <span className="min-w-0 flex-1">
-                    <span className={cn('block truncate text-[13px]', n.read ? 'text-ink-muted' : 'font-semibold text-ink')}>{n.title}</span>
-                    <span className="line-clamp-2 text-[12px] text-ink-muted">{n.message}</span>
-                    <span className="mt-0.5 block text-[11px] text-ink-subtle">{relativeTime(n.createdAt)}</span>
-                  </span>
-                  {!n.read && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand-600" aria-label="Unread" />}
-                </DM.Item>
+                <div key={n.id} className={cn('flex items-start rounded-md', !n.read && 'bg-brand-50/60')}>
+                  <DM.Item onSelect={() => openNotification(n)} className="flex min-w-0 flex-1 cursor-pointer gap-2.5 rounded-md px-2 py-2 outline-none data-[highlighted]:bg-canvas">
+                    <NotificationIcon notification={n} />
+                    <span className="min-w-0 flex-1">
+                      <span className={cn('block truncate text-[13px]', n.read ? 'text-ink-muted' : 'font-semibold text-ink')}>
+                        {n.title}
+                        {!n.read && <span className="sr-only"> (unread)</span>}
+                      </span>
+                      <span className="line-clamp-2 text-[12px] text-ink-muted">{n.message}</span>
+                      <span className="mt-0.5 block text-[11px] text-ink-subtle">{relativeTime(n.createdAt)}</span>
+                    </span>
+                  </DM.Item>
+                  {!n.read && (
+                    <DM.Item
+                      onSelect={(e) => {
+                        e.preventDefault(); // stay open: just mark it
+                        markRead.mutate(n.id, { onError: (err) => toast.error(err.message) });
+                      }}
+                      aria-label={`Mark “${n.title}” as read`}
+                      title="Mark as read"
+                      className="m-1.5 inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-ink-subtle outline-none data-[highlighted]:bg-surface data-[highlighted]:text-brand-700"
+                    >
+                      <Check size={14} aria-hidden="true" />
+                    </DM.Item>
+                  )}
+                </div>
               ))
             )}
           </div>

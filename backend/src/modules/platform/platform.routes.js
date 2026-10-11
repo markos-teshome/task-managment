@@ -2,9 +2,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { validate } from '../../common/middleware/validate.js';
 import { Errors } from '../../common/errors/AppError.js';
-import { email, id, idParam, optionalText, pagination, searchTerm } from '../../common/validators/index.js';
+import { email, id, idParam, optionalText, pagination, platformPassword, searchTerm } from '../../common/validators/index.js';
 import { ok, created } from '../../common/utils/http.js';
-import { loginLimiter, tokenLimiter } from '../../common/middleware/rateLimit.js';
+import { emailActionLimiter, loginLimiter, tokenLimiter } from '../../common/middleware/rateLimit.js';
+import { config } from '../../config/env.js';
+import { logger } from '../../lib/logger.js';
 import { FEATURES } from '../../common/constants/plans.js';
 import * as platform from './platform.service.js';
 import * as platformAuth from './platformAuth.service.js';
@@ -50,6 +52,23 @@ router.post(
     const { cookie, admin } = await platformAuth.completeLogin(req.valid.body, clientMeta(req));
     res.cookie(platformAuth.PLATFORM_COOKIE, cookie, platformAuth.platformCookieOptions());
     ok(res, { admin });
+  },
+);
+
+// Password recovery (public). Only platform_admins are ever looked up; the answer never says whether one exists.
+router.post('/auth/forgot-password', emailActionLimiter, validate({ body: z.object({ email }).strict() }), async (req, res) => {
+  const work = platformAuth.requestPasswordReset(req.valid.body.email).catch((err) => logger.error({ err: err.message }, 'Platform password reset request failed'));
+  if (config.isTest) await work; // answer without waiting (timing); tests wait to see the email
+  ok(res, { message: "If an eligible administrator account exists with this email, you'll receive a reset link shortly." });
+});
+
+router.post(
+  '/auth/reset-password',
+  tokenLimiter,
+  validate({ body: z.object({ token: z.string().min(20).max(200), password: platformPassword }).strict() }),
+  async (req, res) => {
+    await platformAuth.resetPassword(req.valid.body, clientMeta(req));
+    ok(res, { message: 'Your password has been updated successfully. Please sign in again.' });
   },
 );
 

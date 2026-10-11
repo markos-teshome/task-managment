@@ -404,6 +404,7 @@ model Task {
 
   @@index([organizationId, status])
   @@index([organizationId, dueDate])
+  @@index([organizationId, createdAt]) // the task list's default order (newest first)
   @@index([projectId, status])
   @@index([assigneeId, status])
   @@map("tasks")
@@ -594,11 +595,29 @@ model PlatformAdmin {
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
 
-  sessions   PlatformSession[]
-  challenges PlatformLoginChallenge[]
-  auditLogs  PlatformAuditLog[]
+  sessions       PlatformSession[]
+  challenges     PlatformLoginChallenge[]
+  auditLogs      PlatformAuditLog[]
+  passwordResets PlatformPasswordReset[]
 
   @@map("platform_admins")
+}
+
+/// Emailed password-reset link for a platform admin. Only the SHA-256 of the token is stored; 15 minutes,
+/// single use, and a new request replaces any outstanding one. Kept apart from tenant auth_tokens so a token
+/// can never apply to the other kind of account.
+model PlatformPasswordReset {
+  id        String    @id @default(uuid()) @db.Uuid
+  adminId   String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  admin PlatformAdmin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@map("platform_password_resets")
 }
 
 /// Short-lived platform session (8 h absolute, 30 min idle), held in an httpOnly cookie scoped to /api/v1/platform.

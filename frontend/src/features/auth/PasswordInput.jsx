@@ -21,17 +21,17 @@ export const PasswordInput = forwardRef(function PasswordInput(props, ref) {
   );
 });
 
-const RULES = [
-  { label: 'At least 8 characters', test: (v) => v.length >= 8 },
+const RULES = (min) => [
+  { label: `At least ${min} characters`, test: (v) => v.length >= min },
   { label: 'A letter', test: (v) => /[A-Za-z]/.test(v) },
   { label: 'A number', test: (v) => /\d/.test(v) },
 ];
 
 /** Live checklist for the shared password policy (same rules the server enforces). */
-export function PasswordChecklist({ value = '', id }) {
+export function PasswordChecklist({ value = '', id, minLength = 8 }) {
   return (
     <ul id={id} className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[12px]" aria-label="Password requirements">
-      {RULES.map((r) => {
+      {RULES(minLength).map((r) => {
         const met = r.test(value);
         return (
           <li key={r.label} className={met ? 'text-success-600' : 'text-ink-subtle'}>

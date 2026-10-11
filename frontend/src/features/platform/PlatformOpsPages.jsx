@@ -1,7 +1,7 @@
 import { CheckCircle2, ScrollText, XCircle } from 'lucide-react';
 import { PageHeader, Section, Toolbar } from '../../components/layout/PageHeader.jsx';
 import { DataTable } from '../../components/ui/DataTable.jsx';
-import { FilterSelect, Pagination, Skeleton } from '../../components/ui/Misc.jsx';
+import { FilterSelect, Pagination, Skeleton, usePageRecovery } from '../../components/ui/Misc.jsx';
 import { EmptyState, ErrorState } from '../../components/feedback/States.jsx';
 import { useUrlFilters } from '../../hooks/useUrlFilters.js';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js';
@@ -11,8 +11,9 @@ import { AUDIT_LABELS, describeAudit, StatStrip, usePlatformQuery } from './shar
 /** Everything platform admins did: sign-ins, suspensions (with reason), plan changes, admin management. */
 export function PlatformActivityPage() {
   useDocumentTitle('Admin activity');
-  const { filters, setFilters, clear, activeCount } = useUrlFilters(['action', 'page']);
-  const { data, isLoading, error, refetch } = usePlatformQuery('/audit-logs', { ...filters, pageSize: 30 });
+  const { filters, setFilters, clear, activeCount } = useUrlFilters(['action', 'page', 'pageSize']);
+  const { data, isLoading, error, refetch } = usePlatformQuery('/audit-logs', { ...filters, pageSize: filters.pageSize ?? 20 });
+  const pastEnd = usePageRecovery(data?.meta, (page) => setFilters({ page }));
   const columns = [
     { key: 'when', header: 'When', className: 'w-40', cell: (a) => <span className="text-ink-muted" title={new Date(a.createdAt).toLocaleString()}>{formatLongDate(a.createdAt)}, {formatTime(a.createdAt)}</span> },
     { key: 'who', header: 'Admin', className: 'w-44', cell: (a) => <span className="truncate font-medium">{a.actor?.name ?? 'Command line'}</span> },
@@ -27,7 +28,7 @@ export function PlatformActivityPage() {
       </Toolbar>
       {error ? (
         <ErrorState error={error} onRetry={refetch} />
-      ) : !isLoading && data.items.length === 0 ? (
+      ) : !isLoading && !pastEnd && data.items.length === 0 ? (
         <EmptyState icon={ScrollText} title="No admin actions recorded" />
       ) : (
         <>
@@ -43,9 +44,9 @@ export function PlatformActivityPage() {
               </div>
             )}
           />
-          <Pagination meta={data?.meta} onPageChange={(page) => setFilters({ page })} />
         </>
       )}
+      {!error && <Pagination meta={data?.meta} onPageChange={(page) => setFilters({ page })} onPageSizeChange={(pageSize) => setFilters({ pageSize: pageSize === 20 ? undefined : pageSize })} />}
     </>
   );
 }

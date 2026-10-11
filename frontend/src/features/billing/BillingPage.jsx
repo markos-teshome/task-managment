@@ -9,7 +9,7 @@ import { Button } from '../../components/ui/Button.jsx';
 import { StatusBadge, Badge } from '../../components/ui/Badge.jsx';
 import { UsageMeter } from '../../components/ui/Progress.jsx';
 import { DataTable } from '../../components/ui/DataTable.jsx';
-import { Pagination, Skeleton } from '../../components/ui/Misc.jsx';
+import { Pagination, Skeleton, usePageRecovery } from '../../components/ui/Misc.jsx';
 import { ConfirmDialog, Modal, DialogBody, DialogFooter, DialogClose } from '../../components/ui/Dialog.jsx';
 import { EmptyState, ErrorState } from '../../components/feedback/States.jsx';
 import { FormAlert } from '../../components/ui/Form.jsx';
@@ -255,7 +255,9 @@ export function ReviewModal({ plan, current, onClose }) {
 /** `returnPath` is where a pending checkout is re-checked (the billing-resolution screen has its own). */
 export function PaymentHistory({ returnPath = '/billing/return' }) {
   const [page, setPage] = useState(1);
-  const { data, isLoading, error, refetch } = usePayments({ page, pageSize: 10 });
+  const [pageSize, setPageSize] = useState(10);
+  const { data, isLoading, error, refetch } = usePayments({ page, pageSize });
+  const pastEnd = usePageRecovery(data?.meta, setPage);
   const navigate = useNavigate();
   const pending = data?.items.find((p) => p.status === 'PENDING');
 
@@ -282,7 +284,7 @@ export function PaymentHistory({ returnPath = '/billing/return' }) {
       )}
       {error ? (
         <ErrorState error={error} onRetry={refetch} compact />
-      ) : !isLoading && data.items.length === 0 ? (
+      ) : !isLoading && !pastEnd && data.items.length === 0 ? (
         <div className="rounded-lg border border-line bg-surface">
           <EmptyState compact icon={Receipt} title="No payments yet" description="Payments for plan upgrades will appear here." />
         </div>
@@ -304,9 +306,9 @@ export function PaymentHistory({ returnPath = '/billing/return' }) {
               </div>
             )}
           />
-          <Pagination meta={data?.meta} onPageChange={setPage} />
         </>
       )}
+      {!error && <Pagination meta={data?.meta} onPageChange={setPage} onPageSizeChange={(n) => (setPageSize(n), setPage(1))} />}
     </Section>
   );
 }

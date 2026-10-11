@@ -32,9 +32,10 @@ export function ActivityPage() {
 
   const query = useInfiniteQuery({
     queryKey: ['activities', 'feed', filters],
-    queryFn: ({ pageParam }) => api.list('/activities', { ...filters, page: pageParam, pageSize: 40 }),
-    initialPageParam: 1,
-    getNextPageParam: (last) => (last.meta.page < last.meta.totalPages ? last.meta.page + 1 : undefined),
+    // Cursor paging: "Load more" continues after the last entry shown, so new activity can't shift or repeat entries.
+    queryFn: ({ pageParam }) => api.list('/activities', { ...filters, cursor: pageParam, pageSize: 40 }),
+    initialPageParam: undefined,
+    getNextPageParam: (last) => last.meta.nextCursor ?? undefined,
   });
 
   const groups = useMemo(() => {

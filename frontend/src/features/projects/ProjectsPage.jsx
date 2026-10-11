@@ -10,7 +10,7 @@ import { DataTable } from '../../components/ui/DataTable.jsx';
 import { PriorityLabel, StatusBadge } from '../../components/ui/Badge.jsx';
 import { AvatarStack, Person } from '../../components/ui/Avatar.jsx';
 import { Progress } from '../../components/ui/Progress.jsx';
-import { FilterSelect, Pagination, SearchInput } from '../../components/ui/Misc.jsx';
+import { FilterSelect, Pagination, SearchInput, usePageRecovery } from '../../components/ui/Misc.jsx';
 import { EmptyState, ErrorState } from '../../components/feedback/States.jsx';
 import { DueLabel } from '../tasks/components.jsx';
 import { useUrlFilters } from '../../hooks/useUrlFilters.js';
@@ -21,7 +21,7 @@ import { pluralize } from '../../lib/format.js';
 import { cn } from '../../lib/cn.js';
 import { onIntent, prefetchProject } from '../../app/preload.js';
 
-const KEYS = ['search', 'status', 'priority', 'branchId', 'archived', 'sort', 'page'];
+const KEYS = ['search', 'status', 'priority', 'branchId', 'archived', 'sort', 'page', 'pageSize'];
 const SORTS = {
   createdAt: { label: 'Newest first', order: 'desc' },
   dueDate: { label: 'Due date', order: 'asc' },
@@ -36,7 +36,8 @@ export function ProjectsPage() {
   const { filters, setFilters, clear, active, activeCount } = useUrlFilters(KEYS);
   const [creating, setCreating] = useState(false);
   const sort = SORTS[filters.sort] ? filters.sort : 'createdAt';
-  const { data, isLoading, isFetching, error, refetch } = useProjects({ ...filters, sort, order: SORTS[sort].order, pageSize: 20 });
+  const { data, isLoading, isFetching, error, refetch } = useProjects({ ...filters, sort, order: SORTS[sort].order, pageSize: filters.pageSize ?? 20 });
+  const pastEnd = usePageRecovery(data?.meta, (page) => setFilters({ page }));
   const archived = filters.archived === 'true';
   // Branch filter only when there is more than one branch; the list holds the branches this person may see.
   const severalBranches = useHasSeveralBranches();
@@ -124,7 +125,7 @@ export function ProjectsPage() {
 
       {error ? (
         <ErrorState error={error} onRetry={refetch} />
-      ) : !isLoading && data.items.length === 0 ? (
+      ) : !isLoading && !pastEnd && data.items.length === 0 ? (
         active ? (
           <EmptyState icon={SearchX} title={archived ? 'No archived projects found' : 'No projects match these filters'} description="Try a different search or clear the filters." action={<Button size="sm" onClick={clear}>Clear filters</Button>} />
         ) : (
@@ -162,9 +163,9 @@ export function ProjectsPage() {
               </div>
             )}
           />
-          <Pagination meta={data?.meta} onPageChange={(page) => setFilters({ page })} />
         </div>
       )}
+      {!error && <Pagination meta={data?.meta} onPageChange={(page) => setFilters({ page })} onPageSizeChange={(pageSize) => setFilters({ pageSize: pageSize === 20 ? undefined : pageSize })} />}
 
       <ProjectFormModal open={creating} onOpenChange={setCreating} onCreated={(p) => navigate(`/projects/${p.id}`)} />
     </>

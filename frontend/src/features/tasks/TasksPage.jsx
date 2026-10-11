@@ -9,14 +9,14 @@ import { useProjects } from '../projects/api.js';
 import { useMemberOptions } from '../team/api.js';
 import { PageHeader, Toolbar } from '../../components/layout/PageHeader.jsx';
 import { Button } from '../../components/ui/Button.jsx';
-import { FilterSelect, Pagination, SearchInput } from '../../components/ui/Misc.jsx';
+import { FilterSelect, Pagination, SearchInput, usePageRecovery } from '../../components/ui/Misc.jsx';
 import { EmptyState, ErrorState } from '../../components/feedback/States.jsx';
 import { useUrlFilters } from '../../hooks/useUrlFilters.js';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js';
 import { PRIORITY, TASK_STATUS, options } from '../../lib/status.js';
 import { cn } from '../../lib/cn.js';
 
-const KEYS = ['search', 'status', 'priority', 'assigneeId', 'due', 'projectId', 'includeArchived', 'sort', 'page'];
+const KEYS = ['search', 'status', 'priority', 'assigneeId', 'due', 'projectId', 'includeArchived', 'sort', 'page', 'pageSize'];
 const SORTS = [
   { value: 'createdAt', label: 'Newest first', order: 'desc' },
   { value: 'dueDate', label: 'Due date', order: 'asc' },
@@ -34,8 +34,9 @@ export function TasksPage() {
   const members = useMemberOptions();
 
   const sort = SORTS.find((s) => s.value === filters.sort) ?? SORTS[0];
-  const query = { ...filters, sort: sort.value, order: sort.order, pageSize: 25 };
+  const query = { ...filters, sort: sort.value, order: sort.order, pageSize: filters.pageSize ?? 20 };
   const { data, isLoading, isFetching, error, refetch } = useTasks(query);
+  const pastEnd = usePageRecovery(data?.meta, (page) => setFilters({ page }));
 
   const mine = filters.assigneeId === 'me';
 
@@ -135,7 +136,7 @@ export function TasksPage() {
 
       {error ? (
         <ErrorState error={error} onRetry={refetch} />
-      ) : !isLoading && data.items.length === 0 ? (
+      ) : !isLoading && !pastEnd && data.items.length === 0 ? (
         active ? (
           <EmptyState icon={SearchX} title="No tasks match these filters" description="Try a different search or clear the filters." action={<Button size="sm" onClick={clear}>Clear filters</Button>} />
         ) : (
@@ -149,9 +150,9 @@ export function TasksPage() {
       ) : (
         <div className={cn('transition-opacity', isFetching && !isLoading && 'opacity-70')}>
           <TaskTable tasks={data?.items} loading={isLoading} />
-          <Pagination meta={data?.meta} onPageChange={(page) => setFilters({ page })} />
         </div>
       )}
+      {!error && <Pagination meta={data?.meta} onPageChange={(page) => setFilters({ page })} onPageSizeChange={(pageSize) => setFilters({ pageSize: pageSize === 20 ? undefined : pageSize })} />}
 
       <TaskFormModal open={creating} onOpenChange={setCreating} />
     </>

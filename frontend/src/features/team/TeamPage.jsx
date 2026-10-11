@@ -11,7 +11,7 @@ import { DataTable } from '../../components/ui/DataTable.jsx';
 import { StatusBadge, Badge } from '../../components/ui/Badge.jsx';
 import { Avatar } from '../../components/ui/Avatar.jsx';
 import { UsageMeter } from '../../components/ui/Progress.jsx';
-import { FilterSelect, Pagination, SearchInput } from '../../components/ui/Misc.jsx';
+import { FilterSelect, Pagination, SearchInput, usePageRecovery } from '../../components/ui/Misc.jsx';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '../../components/ui/Menu.jsx';
 import { ConfirmDialog } from '../../components/ui/Dialog.jsx';
 import { EmptyState, ErrorState, PlanLimitNotice } from '../../components/feedback/States.jsx';
@@ -21,13 +21,14 @@ import { MEMBER_DISPLAY_STATUS, MEMBER_STATUS, memberDisplayStatus, options } fr
 import { formatDate, formatLongDate } from '../../lib/format.js';
 import { cn } from '../../lib/cn.js';
 
-const KEYS = ['search', 'roleId', 'status', 'page'];
+const KEYS = ['search', 'roleId', 'status', 'page', 'pageSize'];
 
 export function TeamPage() {
   useDocumentTitle('Team');
   const { can, canAny, workspace } = useAuth();
   const { filters, setFilters, clear, active, activeCount } = useUrlFilters(KEYS);
-  const { data, isLoading, isFetching, error, refetch } = useMembers({ ...filters, pageSize: 25 });
+  const { data, isLoading, isFetching, error, refetch } = useMembers({ ...filters, pageSize: filters.pageSize ?? 20 });
+  const pastEnd = usePageRecovery(data?.meta, (page) => setFilters({ page }));
   const org = useOrganization();
   const roles = useRoles(canAny('ROLE_VIEW', 'USER_CREATE', 'USER_UPDATE'));
   const [inviting, setInviting] = useState(false);
@@ -163,7 +164,7 @@ export function TeamPage() {
 
       {error ? (
         <ErrorState error={error} onRetry={refetch} />
-      ) : !isLoading && data.items.length === 0 ? (
+      ) : !isLoading && !pastEnd && data.items.length === 0 ? (
         active ? (
           <EmptyState icon={SearchX} title="No team members match this filter" description="Try a different name, role or status." action={<Button size="sm" onClick={clear}>Clear filters</Button>} />
         ) : (
@@ -188,9 +189,9 @@ export function TeamPage() {
               </div>
             )}
           />
-          <Pagination meta={data?.meta} onPageChange={(page) => setFilters({ page })} />
         </div>
       )}
+      {!error && <Pagination meta={data?.meta} onPageChange={(page) => setFilters({ page })} onPageSizeChange={(pageSize) => setFilters({ pageSize: pageSize === 20 ? undefined : pageSize })} />}
 
       <InviteMemberModal open={inviting} onOpenChange={setInviting} roles={roles.data ?? []} organization={org.data} />
       <ChangeRoleModal member={changingRole} onClose={() => setChangingRole(null)} roles={roles.data ?? []} />

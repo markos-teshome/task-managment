@@ -13,7 +13,7 @@ import { Button } from '../../components/ui/Button.jsx';
 import { Badge, StatusBadge } from '../../components/ui/Badge.jsx';
 import { Avatar } from '../../components/ui/Avatar.jsx';
 import { Progress } from '../../components/ui/Progress.jsx';
-import { Pagination, Skeleton } from '../../components/ui/Misc.jsx';
+import { Pagination, Skeleton, usePageRecovery } from '../../components/ui/Misc.jsx';
 import { onIntent, prefetchProject } from '../../app/preload.js';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '../../components/ui/Menu.jsx';
 import { ConfirmDialog, Modal, DialogBody, DialogFooter, DialogClose } from '../../components/ui/Dialog.jsx';
@@ -192,7 +192,9 @@ function BranchProjects({ branchId }) {
   const { canAny } = useAuth();
   const allowed = canAny('PROJECT_VIEW', 'PROJECT_VIEW_ALL');
   const [page, setPage] = useState(1);
-  const { data, isLoading, error, refetch } = useProjects({ branchId, page, pageSize: 10, sort: 'name', order: 'asc' }, { enabled: allowed });
+  const [pageSize, setPageSize] = useState(10);
+  const { data, isLoading, error, refetch } = useProjects({ branchId, page, pageSize, sort: 'name', order: 'asc' }, { enabled: allowed });
+  const pastEnd = usePageRecovery(data?.meta, setPage);
   if (!allowed) return null;
   return (
     <Section title={`Projects${data ? ` · ${data.meta.total}` : ''}`} id="branch-projects">
@@ -200,7 +202,7 @@ function BranchProjects({ branchId }) {
         <ErrorState compact error={error} onRetry={refetch} />
       ) : isLoading ? (
         <Skeleton className="h-32 w-full" />
-      ) : data.items.length === 0 ? (
+      ) : !pastEnd && data.items.length === 0 ? (
         <div className="rounded-lg border border-line bg-surface">
           <EmptyState compact icon={FolderKanban} title="No projects here" description="Projects created for this branch appear here." />
         </div>
@@ -219,7 +221,7 @@ function BranchProjects({ branchId }) {
           ))}
         </ul>
       )}
-      <Pagination meta={data?.meta} onPageChange={setPage} />
+      {!error && <Pagination meta={data?.meta} onPageChange={setPage} onPageSizeChange={(n) => (setPageSize(n), setPage(1))} />}
     </Section>
   );
 }

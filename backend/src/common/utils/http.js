@@ -4,12 +4,24 @@ export const ok = (res, data, meta, status = 200) =>
 
 export const created = (res, data) => ok(res, data, undefined, 201);
 
-/** Build pagination arguments + response meta from validated `page` / `pageSize` query values. */
+/**
+ * Build pagination arguments + response meta from validated `page` / `pageSize` query values.
+ * Callers count with the same `where` as the page query (same tenant and permission scope).
+ */
 export const paginate = ({ page, pageSize }) => ({
   skip: (page - 1) * pageSize,
   take: pageSize,
-  meta: (total) => ({ page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) }),
+  meta: (total) => {
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    return { page, pageSize, total, totalPages, hasNextPage: page < totalPages, hasPreviousPage: page > 1 };
+  },
 });
+
+/**
+ * Makes an ordering total by appending the primary key, so rows with equal sort values (same due date,
+ * same timestamp, same name) keep one fixed order across pages: no repeats, no gaps.
+ */
+export const stableOrder = (orderBy, direction = 'asc') => [...[orderBy].flat(), { id: direction }];
 
 export const fullName = (user) => (user ? `${user.firstName} ${user.lastName}`.trim() : null);
 

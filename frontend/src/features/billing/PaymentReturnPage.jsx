@@ -11,7 +11,7 @@ import { useAuth } from '../auth/AuthProvider.jsx';
 // Seconds to wait before each re-check: quick at first, then backing off (~40 s in total).
 const SCHEDULE = [2, 2, 3, 3, 5, 5, 8, 10];
 // "Can't tell right now" — never a reason to show the payment as failed.
-const TRANSIENT = ['PAYMENT_VERIFICATION_UNAVAILABLE', 'NETWORK_ERROR', 'SERVICE_UNAVAILABLE'];
+const TRANSIENT = ['PAYMENT_VERIFICATION_UNAVAILABLE', 'NETWORK_ERROR', 'SERVICE_UNAVAILABLE', 'TIMEOUT'];
 const FINAL = ['SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED'];
 
 /**

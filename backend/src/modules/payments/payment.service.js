@@ -3,7 +3,7 @@ import { config } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 import { AppError, Errors } from '../../common/errors/AppError.js';
 import { randomToken } from '../../common/utils/crypto.js';
-import { fullName, paginate } from '../../common/utils/http.js';
+import { fullName, paginate, stableOrder } from '../../common/utils/http.js';
 import { assertPlanFitsUsage, activatePaidPlan } from '../subscriptions/subscription.service.js';
 import { ACTIONS, logActivity } from '../activities/activity.service.js';
 import { membersWithPermission, notify } from '../notifications/notification.service.js';
@@ -65,7 +65,7 @@ export async function listPayments(ctx, query) {
   await expireStaleCheckouts(ctx.organizationId);
   const where = { organizationId: ctx.organizationId, ...(query.status && { status: query.status }) };
   const [items, total] = await prisma.$transaction([
-    prisma.payment.findMany({ where, include, orderBy: { createdAt: 'desc' }, skip, take }),
+    prisma.payment.findMany({ where, include, orderBy: stableOrder({ createdAt: 'desc' }, 'desc'), skip, take }),
     prisma.payment.count({ where }),
   ]);
   return { items: items.map(present), meta: meta(total) };

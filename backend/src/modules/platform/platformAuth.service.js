@@ -3,8 +3,8 @@ import { prisma } from '../../lib/prisma.js';
 import { config } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 import { AppError, Errors } from '../../common/errors/AppError.js';
-import { burnPasswordCheck, randomToken, safeEqual, sha256, verifyPassword } from '../../common/utils/crypto.js';
-import { sendPlatformLoginCode } from '../auth/auth.emails.js';
+import { burnPasswordCheck, hashPassword, randomToken, safeEqual, sha256, verifyPassword } from '../../common/utils/crypto.js';
+import { sendPlatformLoginCode, sendPlatformPasswordChangedEmail, sendPlatformPasswordResetEmail } from '../auth/auth.emails.js';
 
 /**
  * Platform (super admin) authentication — completely separate from tenant sign-in:
@@ -140,4 +140,55 @@ export async function resolvePlatformSession(rawCookie) {
 export async function logoutPlatform(rawCookie) {
   const parsed = parseCookie(rawCookie);
   if (parsed) await prisma.platformSession.updateMany({ where: { id: parsed.id, revokedAt: null }, data: { revokedAt: new Date() } });
+}
+
+// ─────────────────────────── Password recovery ───────────────────────────
+
+const RESET_TTL_MS = 15 * 60_000;
+const RESET_COOLDOWN_MS = 60_000;
+const invalidResetLink = () =>
+  Errors.badRequest('This password reset link is invalid or has expired. Please request a new one.', 'INVALID_TOKEN');
+
+/**
+ * Emails a reset link to an active platform admin. Same generic answer for everyone (the route doesn't wait
+ * for this), nothing for unknown or disabled accounts, at most one email a minute per admin, and a new link
+ * replaces any outstanding one. Tenant users are a different table: their emails never match here.
+ */
+export async function requestPasswordReset(email) {
+  const admin = await prisma.platformAdmin.findUnique({ where: { email } });
+  if (!admin || admin.status !== 'ACTIVE') return;
+  const recent = await prisma.platformPasswordReset.count({
+    where: { adminId: admin.id, usedAt: null, createdAt: { gt: new Date(Date.now() - RESET_COOLDOWN_MS) } },
+  });
+  if (recent) return;
+  const token = randomToken(32);
+  await prisma.$transaction([
+    prisma.platformPasswordReset.deleteMany({ where: { adminId: admin.id, usedAt: null } }),
+    prisma.platformPasswordReset.create({ data: { adminId: admin.id, tokenHash: sha256(token), expiresAt: new Date(Date.now() + RESET_TTL_MS) } }),
+  ]);
+  if (!(await sendPlatformPasswordResetEmail(admin, token))) logger.warn({ adminId: admin.id }, 'Platform password reset email was not accepted by SMTP');
+}
+
+/**
+ * Sets a new password from a reset link. The link is consumed atomically (two simultaneous uses: one wins),
+ * every platform session and pending sign-in code is revoked, and nothing else changes: the account is not
+ * signed in, a disabled admin stays disabled, a temporary lockout stays, and the emailed sign-in code is still
+ * required at the next sign-in.
+ */
+export async function resetPassword({ token, password }, meta) {
+  const reset = await prisma.platformPasswordReset.findUnique({ where: { tokenHash: sha256(token) }, include: { admin: true } });
+  if (!reset || reset.usedAt || reset.expiresAt < new Date() || reset.admin.status !== 'ACTIVE') throw invalidResetLink();
+  const passwordHash = await hashPassword(password);
+  await prisma.$transaction(async (tx) => {
+    const { count } = await tx.platformPasswordReset.updateMany({ where: { id: reset.id, usedAt: null }, data: { usedAt: new Date() } });
+    if (count !== 1) throw invalidResetLink();
+    await tx.platformAdmin.update({ where: { id: reset.adminId }, data: { passwordHash } });
+    await tx.platformSession.updateMany({ where: { adminId: reset.adminId, revokedAt: null }, data: { revokedAt: new Date() } });
+    await tx.platformLoginChallenge.deleteMany({ where: { adminId: reset.adminId, usedAt: null } });
+    await tx.platformAuditLog.create({
+      data: { actorId: reset.adminId, action: 'PLATFORM_ADMIN_PASSWORD_RESET', targetType: 'PLATFORM_ADMIN', targetId: reset.adminId, ipAddress: meta.ip, metadata: { email: reset.admin.email, via: 'email link' } },
+    });
+  });
+  logger.info({ adminId: reset.adminId, ip: meta.ip }, 'Platform admin password reset');
+  await sendPlatformPasswordChangedEmail(reset.admin);
 }

@@ -180,14 +180,15 @@ model Organization {
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
 
-  memberships  Membership[]
-  roles        Role[]
-  branches     Branch[]
-  projects     Project[]
-  tasks        Task[]
-  subscription Subscription?
-  payments     Payment[]
-  activities   ActivityLog[]
+  memberships   Membership[]
+  roles         Role[]
+  branches      Branch[]
+  projects      Project[]
+  tasks         Task[]
+  subscription  Subscription?
+  payments      Payment[]
+  activities    ActivityLog[]
+  notifications Notification[]
 
   @@map("organizations")
 }
@@ -218,12 +219,14 @@ model Membership {
   sessions           Session[]
   authTokens         AuthToken[]
   projectMemberships ProjectMember[]
-  ledProjects        Project[]       @relation("ProjectLead")
-  createdProjects    Project[]       @relation("ProjectCreator")
-  assignedTasks      Task[]          @relation("TaskAssignee")
-  createdTasks       Task[]          @relation("TaskCreator")
+  ledProjects        Project[]                @relation("ProjectLead")
+  createdProjects    Project[]                @relation("ProjectCreator")
+  assignedTasks      Task[]                   @relation("TaskAssignee")
+  createdTasks       Task[]                   @relation("TaskCreator")
   payments           Payment[]
   activities         ActivityLog[]
+  notifications      Notification[]
+  notificationPrefs  NotificationPreference[]
 
   @@unique([organizationId, userId])
   @@unique([id, organizationId])
@@ -499,6 +502,78 @@ model ActivityLog {
   @@index([organizationId, projectId, createdAt])
   @@index([organizationId, entityId]) // a task's history in the task drawer
   @@map("activity_logs")
+}
+
+// ─────────────────────────── Notifications ───────────────────────────
+
+enum DeliveryStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+  SKIPPED // recipient no longer active when it was due
+}
+
+/// An in-app notification for one member of one organization (the recipient is a membership, so a person in
+/// several organizations sees each workspace's notifications only there, and removed members see none).
+/// Recipients are always chosen by the server from the business event, never by a client.
+model Notification {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  membershipId   String    @db.Uuid
+  type           String // catalog in notification.catalog.js
+  title          String
+  message        String
+  link           String? // app path to open, e.g. /tasks?task=<id>
+  entityType     String?
+  entityId       String?   @db.Uuid
+  dedupeKey      String? // the same business event never notifies the same person twice
+  inApp          Boolean   @default(true) // false: email-only (the member turned the in-app channel off)
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  // Composite FK: the recipient must be a membership of the same organization.
+  membership   Membership            @relation(fields: [membershipId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  delivery     NotificationDelivery?
+
+  @@unique([membershipId, dedupeKey])
+  @@index([membershipId, inApp, createdAt])
+  @@index([membershipId, readAt])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+/// Email delivery of a notification (transactional outbox): written with the business change, sent after
+/// commit by the delivery worker, retried on temporary failures.
+model NotificationDelivery {
+  id             String         @id @default(uuid()) @db.Uuid
+  notificationId String         @unique @db.Uuid
+  status         DeliveryStatus @default(PENDING)
+  attempts       Int            @default(0)
+  lastError      String?
+  nextAttemptAt  DateTime       @default(now())
+  sentAt         DateTime?
+  createdAt      DateTime       @default(now())
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@map("notification_deliveries")
+}
+
+/// A member's choice per notification category in one organization. No row = the category's default.
+model NotificationPreference {
+  membershipId String   @db.Uuid
+  category     String
+  inApp        Boolean
+  email        Boolean
+  updatedAt    DateTime @updatedAt
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@id([membershipId, category])
+  @@map("notification_preferences")
 }
 
 // ─────────────────────────── Platform (TeamFlow operators) ───────────────────────────

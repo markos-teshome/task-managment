@@ -20,3 +20,26 @@ export const PasswordInput = forwardRef(function PasswordInput(props, ref) {
     </div>
   );
 });
+
+const RULES = [
+  { label: 'At least 8 characters', test: (v) => v.length >= 8 },
+  { label: 'A letter', test: (v) => /[A-Za-z]/.test(v) },
+  { label: 'A number', test: (v) => /\d/.test(v) },
+];
+
+/** Live checklist for the shared password policy (same rules the server enforces). */
+export function PasswordChecklist({ value = '', id }) {
+  return (
+    <ul id={id} className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[12px]" aria-label="Password requirements">
+      {RULES.map((r) => {
+        const met = r.test(value);
+        return (
+          <li key={r.label} className={met ? 'text-success-600' : 'text-ink-subtle'}>
+            <span aria-hidden="true">{met ? '✓' : '○'}</span> {r.label}
+            <span className="sr-only">{met ? ' (met)' : ' (not yet)'}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}

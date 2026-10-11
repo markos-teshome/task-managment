@@ -30,7 +30,7 @@ test('employee workflow on a phone', async ({ page }) => {
 test('owner pages fit a phone screen', async ({ page }) => {
   const errors = watchConsole(page);
   await signIn(page, USERS.owner);
-  for (const path of ['/', '/projects', '/tasks', '/team', '/roles', '/activity', '/billing', '/settings']) {
+  for (const path of ['/', '/projects', '/tasks', '/team', '/roles', '/activity', '/billing', '/notifications', '/settings']) {
     await page.goto(path);
     await page.waitForLoadState('networkidle');
     await noHorizontalOverflow(page);

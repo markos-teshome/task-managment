@@ -23,10 +23,13 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           // Long-lived vendor chunks: app deploys don't invalidate the browser's cached libraries.
-          manualChunks: {
-            react: ['react', 'react-dom', 'react-router'],
-            data: ['@tanstack/react-query', 'zod', 'react-hook-form', '@hookform/resolvers'],
-            ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', 'sonner'],
+          // Matched by path so sub-entries (e.g. react-dom/client) land in the vendor chunk too.
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (/node_modules\/(react|react-dom|react-router|scheduler)\//.test(id)) return 'react';
+            if (/node_modules\/(@tanstack|zod|react-hook-form|@hookform)\//.test(id)) return 'data';
+            if (/node_modules\/(@radix-ui|sonner|lucide-react)\//.test(id)) return 'ui';
+            return undefined;
           },
         },
       },

@@ -7,6 +7,8 @@ import { email, id, password, personName } from '../../common/validators/index.j
 import { ok, created } from '../../common/utils/http.js';
 import { REFRESH_COOKIE, refreshCookieOptions } from './tokens.js';
 import * as auth from './auth.service.js';
+import { config } from '../../config/env.js';
+import { logger } from '../../lib/logger.js';
 
 const router = Router();
 
@@ -43,7 +45,7 @@ const clearRefreshCookie = (res) => {
 const GENERIC = {
   register: 'If this email can be used, we have sent a verification link. Check your inbox to continue.',
   resend: 'If this account needs verification, a new link is on its way.',
-  forgot: 'If an account exists for this email, we have sent a password reset link.',
+  forgot: "If an account exists with this email, you'll receive a password reset link shortly.",
 };
 
 router.post('/register', registerLimiter, validate({ body: schemas.register }), async (req, res) => {
@@ -85,7 +87,9 @@ router.post('/logout', async (req, res) => {
 });
 
 router.post('/forgot-password', emailActionLimiter, validate({ body: schemas.emailOnly }), async (req, res) => {
-  await auth.forgotPassword(req.valid.body.email);
+  // Answer without waiting, so timing doesn't reveal whether the account exists (tests wait to see the email).
+  const work = auth.forgotPassword(req.valid.body.email).catch((err) => logger.error({ err: err.message }, 'Password reset request failed'));
+  if (config.isTest) await work;
   ok(res, { message: GENERIC.forgot });
 });
 

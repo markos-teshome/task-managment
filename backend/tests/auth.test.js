@@ -160,6 +160,60 @@ describe('password recovery', () => {
     expect(res.body.error.code).toBe('INVALID_TOKEN');
   });
 
+  it('links last 30 minutes; one email a minute per account; a newer link replaces the older one', async () => {
+    const user = await createVerifiedUser();
+    await api.post('/api/v1/auth/forgot-password').send({ email: user.email });
+    const first = lastEmailToken(user.email);
+    const stored = await prisma.authToken.findFirst({ where: { userId: user.id, type: 'PASSWORD_RESET' } });
+    expect(Math.abs(stored.expiresAt - Date.now() - 30 * 60_000)).toBeLessThan(10_000);
+
+    await api.post('/api/v1/auth/forgot-password').send({ email: user.email }); // within the cooldown: no new email
+    expect(testOutbox.filter((m) => m.to === user.email && m.template === 'reset-password')).toHaveLength(1);
+
+    await prisma.authToken.updateMany({ where: { userId: user.id }, data: { createdAt: new Date(Date.now() - 61_000) } });
+    await api.post('/api/v1/auth/forgot-password').send({ email: user.email });
+    const second = lastEmailToken(user.email);
+    expect(second).not.toBe(first);
+    expect((await api.post('/api/v1/auth/reset-password').send({ token: first, password: 'BrandNew123' })).body.error.code).toBe('INVALID_TOKEN');
+    expect((await api.post('/api/v1/auth/reset-password').send({ token: second, password: 'BrandNew123' })).status).toBe(200);
+  });
+
+  it('two simultaneous uses of one link: exactly one succeeds', async () => {
+    const user = await createVerifiedUser();
+    await api.post('/api/v1/auth/forgot-password').send({ email: user.email });
+    const token = lastEmailToken(user.email);
+    const results = await Promise.all(['RaceOne1234', 'RaceTwo1234'].map((password) => api.post('/api/v1/auth/reset-password').send({ token, password })));
+    expect(results.map((r) => r.status).sort()).toEqual([200, 400]);
+  });
+
+  it('no link for disabled accounts or invited people who never set a password (same answer)', async () => {
+    const disabled = await createVerifiedUser();
+    await prisma.user.update({ where: { id: disabled.id }, data: { status: 'DISABLED' } });
+    const invited = await prisma.user.create({ data: { email: 'invited-only@example.com', firstName: 'In', lastName: 'Vited' } });
+    const known = await api.post('/api/v1/auth/forgot-password').send({ email: (await createVerifiedUser()).email });
+    for (const email of [disabled.email, invited.email]) {
+      const res = await api.post('/api/v1/auth/forgot-password').send({ email });
+      expect(res.body).toEqual(known.body);
+      expect(testOutbox.filter((m) => m.to === email)).toHaveLength(0);
+    }
+  });
+
+  it('a security email follows every password change: by reset link and from settings', async () => {
+    const user = await createVerifiedUser();
+    await api.post('/api/v1/auth/forgot-password').send({ email: user.email });
+    await api.post('/api/v1/auth/reset-password').send({ token: lastEmailToken(user.email), password: 'BrandNew123' });
+    const token = await login(user.email, 'BrandNew123');
+    const change = await as(token).post('/auth/change-password').send({ currentPassword: 'BrandNew123', newPassword: 'Newer12345' });
+    expect(change.status).toBe(200);
+
+    const notices = testOutbox.filter((m) => m.to === user.email && m.template === 'password-changed');
+    expect(notices).toHaveLength(2);
+    for (const m of notices) {
+      expect(m.subject).toBe('Your TeamFlow password was changed');
+      expect(m.text).not.toMatch(/BrandNew123|Newer12345|token=/);
+    }
+  });
+
   it('stores only hashes of tokens', async () => {
     const user = await createVerifiedUser();
     await api.post('/api/v1/auth/forgot-password').send({ email: user.email });

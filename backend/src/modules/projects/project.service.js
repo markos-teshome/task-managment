@@ -5,6 +5,7 @@ import { assertCanCreateProject } from '../subscriptions/entitlement.service.js'
 import { resolveActiveMembers } from '../users/member.service.js';
 import { assertBranchUsable } from '../branches/branch.service.js';
 import { ACTIONS, logActivity } from '../activities/activity.service.js';
+import { notify } from '../notifications/notification.service.js';
 
 /**
  * Visibility rule, used by every project/task/activity query (tasks inherit it from their project):
@@ -205,6 +206,8 @@ export async function createProject(ctx, data) {
       projectId: created.id,
       metadata: { name: created.name },
     });
+    if (created.leadId) await notifyLead(tx, ctx, created);
+    await notifyTeamChange(tx, ctx, created, [...teamIds].filter((m) => m !== created.leadId), true);
     return created;
   });
   return present(project, undefined, ctx);
@@ -243,7 +246,15 @@ export async function updateProject(ctx, id, input) {
     const name = data.name ?? current.name;
     if (data.status && data.status !== current.status) {
       await logActivity(tx, { ...base, action: ACTIONS.PROJECT_STATUS_CHANGED, metadata: { name, from: current.status, to: data.status, ...(openTasks && { openTasks }) } });
+      if (data.status === 'COMPLETED') {
+        await notify(tx, {
+          organizationId: ctx.organizationId, recipients: current.members.map((m) => m.membership.id), actorId: ctx.membershipId, type: 'PROJECT_COMPLETED',
+          title: 'Project completed', message: `${fullName(ctx.user)} marked ${name} as completed.`,
+          link: `/projects/${id}`, entityType: 'PROJECT', entityId: id,
+        });
+      }
     }
+    if (data.leadId && data.leadId !== current.lead?.id) await notifyLead(tx, ctx, { id, name, leadId: data.leadId });
     const otherChanges = Object.keys(data).filter((k) => k !== 'status');
     if (otherChanges.length) {
       await logActivity(tx, { ...base, action: ACTIONS.PROJECT_UPDATED, metadata: { name, fields: otherChanges } });
@@ -299,6 +310,23 @@ export async function deleteProject(ctx, id, { confirmName } = {}) {
   });
 }
 
+/** People told they joined or left a project's team. A removed person gets no link: they may no longer see it. */
+const notifyTeamChange = (tx, ctx, project, membershipIds, added) =>
+  notify(tx, {
+    organizationId: ctx.organizationId, recipients: membershipIds, actorId: ctx.membershipId,
+    type: added ? 'PROJECT_MEMBER_ADDED' : 'PROJECT_MEMBER_REMOVED',
+    title: added ? 'Added to a project' : 'Removed from a project',
+    message: added ? `${fullName(ctx.user)} added you to ${project.name}.` : `${fullName(ctx.user)} removed you from ${project.name}.`,
+    link: added ? `/projects/${project.id}` : null, entityType: 'PROJECT', entityId: added ? project.id : null,
+  });
+
+const notifyLead = (tx, ctx, project) =>
+  notify(tx, {
+    organizationId: ctx.organizationId, recipients: [project.leadId], actorId: ctx.membershipId, type: 'PROJECT_LEAD_ASSIGNED',
+    title: "You're responsible for a project", message: `${fullName(ctx.user)} made you the responsible person for ${project.name}.`,
+    link: `/projects/${project.id}`, entityType: 'PROJECT', entityId: project.id,
+  });
+
 export async function addProjectMembers(ctx, id, membershipIds) {
   const project = await findVisibleProject(ctx, id);
   assertCanManageProject(ctx, project);
@@ -322,6 +350,7 @@ export async function addProjectMembers(ctx, id, membershipIds) {
         metadata: { memberName: fullName(m.user), projectName: project.name },
       });
     }
+    await notifyTeamChange(tx, ctx, project, toAdd.map((m) => m.id), true);
   });
   return getProject(ctx, id);
 }
@@ -347,6 +376,7 @@ export async function removeProjectMember(ctx, id, membershipId) {
       projectId: id,
       metadata: { memberName: fullName(member.user), projectName: project.name },
     });
+    await notifyTeamChange(tx, ctx, project, [membershipId], false);
   });
   return getProject(ctx, id);
 }

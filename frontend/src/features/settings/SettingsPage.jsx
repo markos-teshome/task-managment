@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../auth/AuthProvider.jsx';
-import { PasswordInput } from '../auth/PasswordInput.jsx';
+import { PasswordChecklist, PasswordInput } from '../auth/PasswordInput.jsx';
 import { PageHeader } from '../../components/layout/PageHeader.jsx';
 import { Field, FormAlert, Input } from '../../components/ui/Form.jsx';
 import { Button } from '../../components/ui/Button.jsx';
@@ -13,12 +13,15 @@ import { Badge } from '../../components/ui/Badge.jsx';
 import { api } from '../../lib/api.js';
 import { applyServerErrors, rules } from '../../lib/forms.js';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js';
+import { useSearchParams } from 'react-router';
+import { Tabs } from '../../components/ui/Misc.jsx';
+import { NotificationPreferences } from '../notifications/NotificationPreferences.jsx';
 import { ClosureRequest, MembershipActions } from './OrganizationLifecycle.jsx';
 
 /** Settings as labelled sections: description on the left, form on the right (stacked on phones). */
 function SettingsSection({ title, description, children }) {
   return (
-    <section className="grid gap-4 border-b border-line py-6 first:pt-0 last:border-0 md:grid-cols-[260px_minmax(0,1fr)]">
+    <section className="grid gap-4 border-b border-line py-5 last:border-0 md:grid-cols-[260px_minmax(0,1fr)]">
       <div>
         <h2 className="text-[14px] font-semibold">{title}</h2>
         {description && <p className="mt-1 text-[13px] text-ink-muted">{description}</p>}
@@ -28,45 +31,68 @@ function SettingsSection({ title, description, children }) {
   );
 }
 
+const TABS = [
+  { value: 'profile', label: 'Profile' },
+  { value: 'security', label: 'Security' },
+  { value: 'notifications', label: 'Notifications' },
+  { value: 'organization', label: 'Organization' },
+];
+
+/** Settings in four tabs; the tab is in the URL (?tab=security) so links, refresh and back work. */
 export function SettingsPage() {
   useDocumentTitle('Settings');
   const { workspace, user, can } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const tab = TABS.some((t) => t.value === params.get('tab')) ? params.get('tab') : 'profile';
   return (
     <>
-      <PageHeader title="Settings" description="Your profile, security and organization details." />
-      <div>
-        <SettingsSection title="Profile" description="How you appear to your team.">
-          <ProfileForm />
-        </SettingsSection>
-        <SettingsSection title="Password" description="Changing your password signs you out of other devices.">
-          <PasswordForm />
-        </SettingsSection>
-        {workspace && (
-          <SettingsSection title="Organization" description={can('ORG_MANAGE') ? 'Your organization name is shown to everyone in it.' : 'Ask an owner to change organization details.'}>
-            <OrganizationForm />
+      <PageHeader title="Settings" description="Your profile, security, notifications and organization." />
+      <div className="mb-2 border-b border-line">
+        <Tabs tabs={TABS} value={tab} onChange={(v) => setParams(v === 'profile' ? {} : { tab: v }, { replace: true })} />
+      </div>
+      <div role="tabpanel" aria-label={TABS.find((t) => t.value === tab).label}>
+        {tab === 'profile' && (
+          <>
+            <SettingsSection title="Profile" description="How you appear to your team.">
+              <ProfileForm />
+            </SettingsSection>
+            <SettingsSection title="Your access">
+              <dl className="space-y-2 text-[13px]">
+                <div className="flex gap-2"><dt className="w-28 text-ink-muted">Email</dt><dd>{user.email}</dd></div>
+                {workspace && (
+                  <>
+                    <div className="flex gap-2"><dt className="w-28 text-ink-muted">Role</dt><dd><Badge tone="brand">{workspace.role.name}</Badge></dd></div>
+                    <div className="flex gap-2"><dt className="w-28 text-ink-muted">Plan</dt><dd>{workspace.plan.name}</dd></div>
+                  </>
+                )}
+              </dl>
+            </SettingsSection>
+          </>
+        )}
+        {tab === 'security' && (
+          <SettingsSection title="Change password" description="Other devices are signed out, and we email you a security notice. Forgot it? Sign out and use “Forgot password”.">
+            <PasswordForm />
           </SettingsSection>
         )}
-        <SettingsSection title="Your access">
-          <dl className="space-y-2 text-[13px]">
-            <div className="flex gap-2"><dt className="w-28 text-ink-muted">Email</dt><dd>{user.email}</dd></div>
-            {workspace && (
-              <>
-                <div className="flex gap-2"><dt className="w-28 text-ink-muted">Role</dt><dd><Badge tone="brand">{workspace.role.name}</Badge></dd></div>
-                <div className="flex gap-2"><dt className="w-28 text-ink-muted">Plan</dt><dd>{workspace.plan.name}</dd></div>
-              </>
+        {tab === 'notifications' && (
+          <SettingsSection title="Notifications" description="Choose how you hear about work in this workspace. Billing updates and security alerts are always sent.">
+            {workspace ? <NotificationPreferences /> : <p className="text-[13px] text-ink-muted">Join or create an organization to receive notifications.</p>}
+          </SettingsSection>
+        )}
+        {tab === 'organization' && workspace && (
+          <>
+            <SettingsSection title="Organization" description={can('ORG_MANAGE') ? 'Your organization name is shown to everyone in it.' : 'Ask an owner to change organization details.'}>
+              <OrganizationForm />
+            </SettingsSection>
+            <SettingsSection title="Membership" description={workspace.role.key === 'OWNER' ? 'Hand ownership to someone else, or leave. The last owner must transfer ownership before leaving.' : 'Leave this organization. Your work and history stay with it.'}>
+              <MembershipActions />
+            </SettingsSection>
+            {workspace.role.key === 'OWNER' && (
+              <SettingsSection title="Close organization" description="Stop using TeamFlow for this organization. Data is kept and closure is reversible.">
+                <ClosureRequest />
+              </SettingsSection>
             )}
-            {user.isPlatformAdmin && <div className="flex gap-2"><dt className="w-28 text-ink-muted">Platform</dt><dd><Badge tone="accent">Super admin</Badge></dd></div>}
-          </dl>
-        </SettingsSection>
-        {workspace && (
-          <SettingsSection title="Membership" description={workspace.role.key === 'OWNER' ? 'Hand ownership to someone else, or leave. The last owner must transfer ownership before leaving.' : 'Leave this organization. Your work and history stay with it.'}>
-            <MembershipActions />
-          </SettingsSection>
-        )}
-        {workspace?.role.key === 'OWNER' && (
-          <SettingsSection title="Close organization" description="Stop using TeamFlow for this organization. Data is kept and closure is reversible.">
-            <ClosureRequest />
-          </SettingsSection>
+          </>
         )}
       </div>
     </>
@@ -126,15 +152,16 @@ function PasswordForm() {
       <Field label="Current password" error={form.formState.errors.currentPassword?.message}>
         <PasswordInput autoComplete="current-password" {...form.register('currentPassword')} />
       </Field>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div>
         <Field label="New password" error={form.formState.errors.newPassword?.message}>
           <PasswordInput autoComplete="new-password" {...form.register('newPassword')} />
         </Field>
-        <Field label="Confirm new password" error={form.formState.errors.confirm?.message}>
-          <PasswordInput autoComplete="new-password" {...form.register('confirm')} />
-        </Field>
+        <PasswordChecklist value={form.watch('newPassword')} />
       </div>
-      <Button type="submit" loading={form.formState.isSubmitting}>
+      <Field label="Confirm new password" error={form.formState.errors.confirm?.message}>
+        <PasswordInput autoComplete="new-password" {...form.register('confirm')} />
+      </Field>
+      <Button type="submit" variant="primary" loading={form.formState.isSubmitting}>
         Change password
       </Button>
     </form>

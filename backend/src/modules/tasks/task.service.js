@@ -6,6 +6,7 @@ import { assertFeature } from '../subscriptions/entitlement.service.js';
 import { resolveActiveMembers } from '../users/member.service.js';
 import { assertCanManageProject, canManageProject, visibleProjectsWhere } from '../projects/project.service.js';
 import { ACTIONS, logActivity } from '../activities/activity.service.js';
+import { notify, projectResponsible } from '../notifications/notification.service.js';
 
 /**
  * A task is visible when its project is visible to the caller, or when it is assigned to them
@@ -160,6 +161,14 @@ async function validateAssignee(tx, ctx, project, assigneeId) {
   return member;
 }
 
+/** The new assignee hears about it (unless they assigned themselves). */
+const notifyAssigned = (tx, ctx, task, project) =>
+  notify(tx, {
+    organizationId: ctx.organizationId, recipients: [task.assigneeId], actorId: ctx.membershipId, type: 'TASK_ASSIGNED',
+    title: 'New task assigned', message: `${fullName(ctx.user)} assigned you “${task.title}” in ${project.name}.`,
+    link: `/my-work?task=${task.id}`, entityType: 'TASK', entityId: task.id,
+  });
+
 export async function createTask(ctx, data) {
   const visible = await prisma.project.findFirst({ where: { id: data.projectId, ...visibleProjectsWhere(ctx) }, select: { id: true } });
   if (!visible) throw Errors.validation([{ field: 'projectId', message: 'Select a project you have access to' }]);
@@ -183,6 +192,7 @@ export async function createTask(ctx, data) {
     await logActivity(tx, { ...base, action: ACTIONS.TASK_CREATED, metadata: { title: created.title, projectName: project.name } });
     if (assignee) {
       await logActivity(tx, { ...base, action: ACTIONS.TASK_ASSIGNED, metadata: { title: created.title, assigneeName: fullName(assignee.user) } });
+      await notifyAssigned(tx, ctx, created, project);
     }
     return created;
   });
@@ -234,6 +244,21 @@ export async function updateTask(ctx, id, data) {
     }
     if (assigneeChanged) {
       await logActivity(tx, { ...base, action: ACTIONS.TASK_ASSIGNED, metadata: { title, assigneeName: assignee ? fullName(assignee.user) : null } });
+      if (assignee) await notifyAssigned(tx, ctx, result, project);
+      if (task.assignee) {
+        await notify(tx, {
+          organizationId: ctx.organizationId, recipients: [task.assignee.id], actorId: ctx.membershipId, type: 'TASK_UNASSIGNED',
+          title: 'Task reassigned', message: `${fullName(ctx.user)} moved “${title}” in ${project.name} to ${assignee ? fullName(assignee.user) : 'no one'}.`,
+          link: `/projects/${project.id}`, entityType: 'PROJECT', entityId: project.id,
+        });
+      }
+    }
+    if (statusChanged && data.status === 'COMPLETED') {
+      await notify(tx, {
+        organizationId: ctx.organizationId, recipients: [projectResponsible(project)], actorId: ctx.membershipId, type: 'TASK_COMPLETED',
+        title: 'Task completed', message: `${fullName(ctx.user)} completed “${title}” in ${project.name}.`,
+        link: `/projects/${project.id}?task=${id}`, entityType: 'TASK', entityId: id,
+      });
     }
     const otherFields = Object.keys(data).filter((k) => k !== 'status' && k !== 'assigneeId');
     if (otherFields.length) {

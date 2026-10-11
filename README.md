@@ -149,7 +149,7 @@ Backend (`cd backend`):
 |---|---|
 | `npm run dev` | API with auto-reload |
 | `npm start` | API (production) |
-| `npx prisma migrate deploy` | Apply migrations (production / fresh DB) |
+| `npm run db:deploy` | Apply migrations (production / fresh DB) — over `DIRECT_URL` when set |
 | `npm run db:migrate` | Create a new migration after editing `schema.prisma` (development) |
 | `npm run db:seed` | Wipe and recreate demo data |
 | `npm test` | Run the test suite (uses `TEST_DATABASE_URL`) |
@@ -164,6 +164,52 @@ Frontend (`cd frontend`):
 
 Reference data (permission catalog and default plans) is created automatically at startup — a fresh database works
 after `migrate deploy` without running the seed or any manual SQL.
+
+## Deployment
+
+TeamFlow deploys as **one service**: the API also serves the built React app on the same address
+(`SERVE_FRONTEND=true`). That keeps the `SameSite=Strict` session cookie working and needs no CORS. It runs on any
+host that runs Docker or Node 20+ (Render, Railway, Fly.io, a VPS) with a PostgreSQL database (e.g. Neon).
+
+**1. Configure** (environment variables on the host — never in the image or the repository). Start from
+`backend/.env.example`; production requires (the server refuses to start otherwise):
+
+| Variable | Production value |
+|---|---|
+| `NODE_ENV` | `production` |
+| `APP_URL`, `API_URL` | the public `https://` address (the same one) |
+| `CORS_ORIGINS` | the same address |
+| `COOKIE_SECURE` | `true` |
+| `SERVE_FRONTEND` | `true` (set by the Dockerfile) |
+| `DATABASE_URL` / `DIRECT_URL` | pooled address for the app / direct address for migrations (Neon: without `-pooler`) |
+| `JWT_ACCESS_SECRET` | a **new** random value (48+ bytes) |
+| `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET` | test keys; live keys also need `CHAPA_ALLOW_LIVE=true` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | your mail account |
+
+**2a. With Docker** (root `Dockerfile`): build `docker build -t teamflow .`, run with the variables above and port
+`4000` exposed. On start it applies pending migrations (`npm run db:deploy`), then starts the server. Health check:
+`GET /api/health`.
+
+**2b. Without Docker** (a Node web service):
+
+- Build command: `cd frontend && npm ci && npm run build && cd ../backend && npm ci --omit=dev`
+- Start command: `cd backend && npm run db:deploy && npm start`
+
+**3. After the first deploy**
+
+1. Create the platform admin (from a machine with the production `DATABASE_URL`):
+   `PLATFORM_ADMIN_PASSWORD='…' npm run platform-admin -- create you@company.com First Last`.
+2. In the Chapa dashboard, set the webhook URL to `<API_URL>/api/v1/payments/webhooks/chapa` and its secret hash to
+   the same value as `CHAPA_WEBHOOK_SECRET`.
+3. Sign up, verify the emailed link, and check the server log for `SMTP connection verified`.
+
+**Notes.** Run a single instance (rate limits are kept in memory; the 08:00 reminder job and the email sender are
+safe on several instances, but rate limits would then apply per instance). Behind more than one proxy layer, adjust
+`app.set('trust proxy', 1)` in `backend/src/app.js`. Never run `npm run db:seed` or `db:reset` against production
+data — the seed refuses a database holding data it did not create unless `SEED_FORCE=1`.
+
+Production smoke test (production mode serving the built app, on the test database):
+`cd frontend && npm run build && npx playwright test -c playwright.prod.config.js`.
 
 ## Main features
 

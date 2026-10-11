@@ -1,0 +1,17 @@
+# Keep secrets, local builds and test output out of the image build context.
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+**/dist
+**/*.zip
+**/test-results
+**/playwright-report
+**/coverage
+**/.mail-outbox
+**/*.log
+.git
+.vscode
+.idea
+frontend/e2e
+backend/tests

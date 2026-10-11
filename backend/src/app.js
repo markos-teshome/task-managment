@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import compression from 'compression';
 import helmet from 'helmet';
@@ -67,7 +70,35 @@ export function createApp() {
   api.use('/platform', platformRoutes);
   app.use('/api/v1', api);
 
+  if (config.SERVE_FRONTEND) serveFrontend(app);
+
   app.use(notFoundHandler);
   app.use(errorHandler);
   return app;
+}
+
+/**
+ * Serves the built React app (frontend/dist) from this server: hashed assets are cached for a year, index.html
+ * never (so a deploy is picked up at once), and any other GET outside /api returns index.html for client-side
+ * routing (deep links and refreshes work).
+ */
+function serveFrontend(app) {
+  const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../frontend/dist');
+  const index = path.join(dist, 'index.html');
+  if (!fs.existsSync(index)) {
+    logger.error({ dist }, 'SERVE_FRONTEND is on but frontend/dist/index.html is missing: run "npm run build" in frontend/');
+    return;
+  }
+  app.use(
+    express.static(dist, {
+      index: false,
+      setHeaders: (res, file) =>
+        res.setHeader('Cache-Control', file.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache'),
+    }),
+  );
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(index);
+  });
 }

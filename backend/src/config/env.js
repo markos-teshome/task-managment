@@ -12,6 +12,13 @@ const schema = z.object({
   LOG_LEVEL: z.string().default('info'),
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+  // Migrations only: a direct (non-pooled) connection. Neon's pooled "-pooler" address can leave Prisma's
+  // migration lock stuck; set this to the same URL without "-pooler". Falls back to DATABASE_URL.
+  DIRECT_URL: z.string().optional(),
+
+  // One-service deployment: this API also serves the built frontend (frontend/dist) on the same address,
+  // so the session cookie stays same-site and no CORS is needed.
+  SERVE_FRONTEND: bool.default('false'),
 
   // APP_URL  = the frontend people open; every link in an email points here (must reach the recipient's device).
   // API_URL  = this API as reachable by Chapa (webhook + callback). It may be the same origin as APP_URL when
@@ -61,6 +68,13 @@ const isLocalUrl = (url) => ['localhost', '127.0.0.1', '[::1]', '0.0.0.0'].inclu
 // A production deployment must not email links that only work on the server itself.
 if (env.NODE_ENV === 'production' && isLocalUrl(env.APP_URL)) {
   fail('  - APP_URL points to localhost. In production it must be the public frontend URL used in email links.');
+}
+
+// Production must run over HTTPS with secure cookies (sessions would otherwise travel in clear text).
+if (env.NODE_ENV === 'production') {
+  if (!env.COOKIE_SECURE) fail('  - COOKIE_SECURE must be true in production (HTTPS only session cookies).');
+  if (new URL(env.APP_URL).protocol !== 'https:') fail('  - APP_URL must use https:// in production.');
+  if (new URL(env.API_URL).protocol !== 'https:') fail('  - API_URL must use https:// in production (Chapa calls it).');
 }
 
 // Live payments only with explicit approval: a live key must be paired with CHAPA_ALLOW_LIVE=true.

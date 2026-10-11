@@ -14,9 +14,10 @@ function boot(env) {
 describe('production configuration checks', () => {
   const prod = { NODE_ENV: 'production', APP_URL: 'https://app.example.com', API_URL: 'https://app.example.com', COOKIE_SECURE: 'true' };
 
-  it('a correct production configuration starts', () => {
-    const r = boot(prod);
-    expect(r.stdout).toContain('CONFIG_OK');
+  it('a correct production configuration starts (with SMTP, or with Brevo instead of SMTP)', () => {
+    expect(boot(prod).stdout).toContain('CONFIG_OK');
+    const brevoOnly = boot({ ...prod, SMTP_HOST: '', SMTP_USER: '', SMTP_PASS: '', BREVO_API_KEY: 'xkeysib-x', MAIL_FROM: 'TeamFlow <ops@example.com>' });
+    expect(brevoOnly.stdout).toContain('CONFIG_OK');
   });
 
   it.each([
@@ -26,6 +27,8 @@ describe('production configuration checks', () => {
     ['localhost links', { APP_URL: 'https://localhost' }, 'APP_URL points to localhost'],
     ['live Chapa key without approval', { CHAPA_SECRET_KEY: 'CHASECK-live-key' }, 'CHAPA_SECRET_KEY is a live key'],
     ['short JWT secret', { JWT_ACCESS_SECRET: 'short' }, 'JWT_ACCESS_SECRET must be at least 32 characters'],
+    ['no email at all', { SMTP_HOST: '', SMTP_USER: '', SMTP_PASS: '' }, 'Email is required'],
+    ['Brevo without a sender', { SMTP_HOST: '', SMTP_USER: '', SMTP_PASS: '', BREVO_API_KEY: 'xkeysib-x' }, 'set MAIL_FROM'],
   ])('refuses to start with %s', (_name, override, message) => {
     const r = boot({ ...prod, ...override });
     expect(r.status).toBe(1);

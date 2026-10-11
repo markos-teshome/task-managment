@@ -20,7 +20,8 @@ const schema = z.object({
   // so the session cookie stays same-site and no CORS is needed.
   SERVE_FRONTEND: bool.default('false'),
   // Number of proxies in front of this API (for the real client IP used by rate limits):
-  // 1 = the host's load balancer (Render, Railway); 2 = a frontend host forwarding /api first (Vercel rewrite → Render).
+  // Count them from the request logs' x-forwarded-for: Render alone = 3 (Cloudflare + 2 Render hops);
+  // Vercel rewrite → Render = 4. Default 1 = a single load balancer.
   TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(1),
 
   // APP_URL  = the frontend people open; every link in an email points here (must reach the recipient's device).
@@ -49,6 +50,9 @@ const schema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   MAIL_FROM: z.string().optional(),
+  // Email over HTTPS instead of SMTP (for hosts that block SMTP ports, e.g. Render's free plan). When set, it is
+  // used instead of SMTP; MAIL_FROM (or SMTP_USER) must be a sender verified in Brevo.
+  BREVO_API_KEY: z.string().optional(),
 });
 
 const fail = (message) => {
@@ -62,8 +66,11 @@ if (!parsed.success) fail(parsed.error.issues.map((i) => `  - ${i.path.join('.')
 const env = parsed.data;
 const isTest = env.NODE_ENV === 'test';
 
-if (!isTest && !(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS)) {
-  fail('  - SMTP_HOST, SMTP_USER and SMTP_PASS are required: verification, password-reset and invitation emails are sent by SMTP.');
+if (!isTest && !env.BREVO_API_KEY && !(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS)) {
+  fail('  - Email is required: set BREVO_API_KEY (HTTPS) or SMTP_HOST, SMTP_USER and SMTP_PASS — verification, password-reset and invitation emails depend on it.');
+}
+if (!isTest && env.BREVO_API_KEY && !(env.MAIL_FROM || env.SMTP_USER)) {
+  fail('  - With BREVO_API_KEY, set MAIL_FROM to the sender address verified in Brevo, e.g. MAIL_FROM=TeamFlow <you@gmail.com>.');
 }
 
 const isLocalUrl = (url) => ['localhost', '127.0.0.1', '[::1]', '0.0.0.0'].includes(new URL(url).hostname);

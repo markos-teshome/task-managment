@@ -204,7 +204,8 @@ host that runs Docker or Node 20+ (Render, Railway, Fly.io, a VPS) with a Postgr
   session cookie would be blocked).
 - Render web service: Root Directory `backend`, Build `npm ci`, Start `npm run db:deploy && npm start`,
   Health check `/api/health`. Environment: `APP_URL` and `CORS_ORIGINS` = the Vercel address, `API_URL` = the
-  Render address (Chapa calls it directly), `TRUST_PROXY=2`, `SERVE_FRONTEND` unset, plus the variables above.
+  Render address (Chapa calls it directly), `TRUST_PROXY=4` (Vercel → Cloudflare → Render; `3` without Vercel),
+  `SERVE_FRONTEND` unset, plus the variables above.
 - Check that the request log's `clientIp` shows visitors' addresses (not one shared Vercel address); if it does
   not, adjust `TRUST_PROXY`.
 
@@ -215,6 +216,11 @@ host that runs Docker or Node 20+ (Render, Railway, Fly.io, a VPS) with a Postgr
 2. In the Chapa dashboard, set the webhook URL to `<API_URL>/api/v1/payments/webhooks/chapa` and its secret hash to
    the same value as `CHAPA_WEBHOOK_SECRET`.
 3. Sign up, verify the emailed link, and check the server log for `SMTP connection verified`.
+
+**Email on Render's free plan:** outgoing SMTP ports are blocked there (the log shows `Connection timeout` /
+`ENETUNREACH … :465` on `Email delivery failed`). Set `BREVO_API_KEY` (Brevo's HTTPS API, free tier) and
+`MAIL_FROM=TeamFlow <address verified in Brevo>`; the server then logs `Brevo email API verified` at start-up.
+Without `BREVO_API_KEY`, SMTP is used (e.g. Gmail locally).
 
 **Notes.** Run a single instance (rate limits are kept in memory; the 08:00 reminder job and the email sender are
 safe on several instances, but rate limits would then apply per instance). Behind more than one proxy layer, adjust

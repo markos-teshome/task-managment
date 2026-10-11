@@ -363,7 +363,7 @@ export async function health() {
   ]);
   return {
     database: { ok: true, latencyMs: dbLatencyMs },
-    email: { configured: !!config.SMTP_HOST || config.isTest, lastCheck: mailerStatus },
+    email: { configured: !!config.SMTP_HOST || !!config.BREVO_API_KEY || config.isTest, lastCheck: mailerStatus },
     payments: {
       provider: 'CHAPA',
       mode: config.chapaTestMode ? 'TEST' : 'LIVE',

@@ -195,6 +195,19 @@ host that runs Docker or Node 20+ (Render, Railway, Fly.io, a VPS) with a Postgr
 - Build command: `cd frontend && npm ci && npm run build && cd ../backend && npm ci --omit=dev`
 - Start command: `cd backend && npm run db:deploy && npm start`
 
+**2c. Frontend on Vercel, API on Render** (two hosts, still one site for the browser):
+
+- Vercel project: Root Directory `frontend` (Vite is detected). In `frontend/vercel.json`, replace
+  `YOUR-RENDER-SERVICE.onrender.com` with the Render address. Vercel then forwards `/api/*` to Render, so the
+  browser only ever talks to the Vercel address and the `SameSite=Strict` session cookie keeps working; the second
+  rule serves `index.html` for deep links. Do **not** set `VITE_API_URL` to the Render address (cross-site: the
+  session cookie would be blocked).
+- Render web service: Root Directory `backend`, Build `npm ci`, Start `npm run db:deploy && npm start`,
+  Health check `/api/health`. Environment: `APP_URL` and `CORS_ORIGINS` = the Vercel address, `API_URL` = the
+  Render address (Chapa calls it directly), `TRUST_PROXY=2`, `SERVE_FRONTEND` unset, plus the variables above.
+- Check that the request log's `clientIp` shows visitors' addresses (not one shared Vercel address); if it does
+  not, adjust `TRUST_PROXY`.
+
 **3. After the first deploy**
 
 1. Create the platform admin (from a machine with the production `DATABASE_URL`):

@@ -19,6 +19,9 @@ const schema = z.object({
   // One-service deployment: this API also serves the built frontend (frontend/dist) on the same address,
   // so the session cookie stays same-site and no CORS is needed.
   SERVE_FRONTEND: bool.default('false'),
+  // Number of proxies in front of this API (for the real client IP used by rate limits):
+  // 1 = the host's load balancer (Render, Railway); 2 = a frontend host forwarding /api first (Vercel rewrite → Render).
+  TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(1),
 
   // APP_URL  = the frontend people open; every link in an email points here (must reach the recipient's device).
   // API_URL  = this API as reachable by Chapa (webhook + callback). It may be the same origin as APP_URL when

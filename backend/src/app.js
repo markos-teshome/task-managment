@@ -30,7 +30,7 @@ export function createApp() {
   const app = express();
 
   app.disable('x-powered-by');
-  app.set('trust proxy', 1); // correct client IPs for rate limiting behind one proxy
+  app.set('trust proxy', config.TRUST_PROXY); // proxies in front of the API, so req.ip is the real client (rate limits)
 
   app.use(helmet());
   app.use(compression()); // gzip JSON/CSV responses over 1 KB (lists and dashboards shrink ~80%)
@@ -45,7 +45,8 @@ export function createApp() {
     }),
   );
   app.use(cookieParser());
-  if (!config.isTest) app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === '/api/health' } }));
+  // clientIp = the address rate limits use; check it in the logs when setting TRUST_PROXY.
+  if (!config.isTest) app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === '/api/health' }, customProps: (req) => ({ clientIp: req.ip }) }));
 
   app.get('/api/health', async (_req, res) => {
     await prisma.$queryRaw`SELECT 1`;

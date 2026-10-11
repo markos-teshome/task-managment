@@ -5,8 +5,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import { useCreateTask } from './api.js';
-import { useProjects } from '../projects/api.js';
-import { useMemberOptions } from '../team/api.js';
+import { useProject, useProjects } from '../projects/api.js';
 import { Modal, DialogBody, DialogFooter, DialogClose } from '../../components/ui/Dialog.jsx';
 import { Field, FormAlert, Input, Select, Textarea } from '../../components/ui/Form.jsx';
 import { Button } from '../../components/ui/Button.jsx';
@@ -28,7 +27,8 @@ export function TaskFormModal({ open, onOpenChange, projectId, defaultAssigneeId
   const { can } = useAuth();
   const canAssign = can('TASK_ASSIGN');
   const projects = useProjects({ pageSize: 100, sort: 'name', order: 'asc' }, { enabled: open && !projectId });
-  const members = useMemberOptions();
+  // D-3: tasks go into projects the person manages or is on.
+  const choosable = (projects.data?.items ?? []).filter((p) => p.inScope);
   const create = useCreateTask();
   const [error, setError] = useState(null);
 
@@ -36,7 +36,11 @@ export function TaskFormModal({ open, onOpenChange, projectId, defaultAssigneeId
     resolver: zodResolver(schema),
     defaultValues: { projectId: projectId ?? '', title: '', description: '', status: 'TODO', priority: 'MEDIUM', assigneeId: defaultAssigneeId ?? '', dueDate: '' },
   });
-  const { register, handleSubmit, formState, reset } = form;
+  const { register, handleSubmit, formState, reset, watch } = form;
+  // D-12: only the chosen project's team can be assigned.
+  const chosenProjectId = projectId ?? watch('projectId');
+  const project = useProject(open && canAssign && chosenProjectId ? chosenProjectId : null);
+  const team = (project.data?.members ?? []).filter((m) => m.status === 'ACTIVE');
 
   const close = (next) => {
     if (!next) {
@@ -74,7 +78,7 @@ export function TaskFormModal({ open, onOpenChange, projectId, defaultAssigneeId
             <Field label="Project" required error={formState.errors.projectId?.message}>
               <Select {...register('projectId')} disabled={projects.isLoading}>
                 <option value="">{projects.isLoading ? 'Loading projects…' : 'Select a project'}</option>
-                {projects.data?.items.map((p) => (
+                {choosable.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
@@ -104,10 +108,10 @@ export function TaskFormModal({ open, onOpenChange, projectId, defaultAssigneeId
               </Select>
             </Field>
             {canAssign && (
-              <Field label="Assignee" error={formState.errors.assigneeId?.message}>
-                <Select {...register('assigneeId')}>
-                  <option value="">Unassigned</option>
-                  {members.data?.map((m) => (
+              <Field label="Assignee" hint="Only the project team can be assigned. Add people in the project's Team tab." error={formState.errors.assigneeId?.message}>
+                <Select {...register('assigneeId')} disabled={!chosenProjectId}>
+                  <option value="">{chosenProjectId ? 'Unassigned' : 'Choose a project first'}</option>
+                  {team.map((m) => (
                     <option key={m.id} value={m.id}>{m.name}</option>
                   ))}
                 </Select>

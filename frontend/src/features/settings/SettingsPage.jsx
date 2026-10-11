@@ -13,6 +13,7 @@ import { Badge } from '../../components/ui/Badge.jsx';
 import { api } from '../../lib/api.js';
 import { applyServerErrors, rules } from '../../lib/forms.js';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js';
+import { ClosureRequest, MembershipActions } from './OrganizationLifecycle.jsx';
 
 /** Settings as labelled sections: description on the left, form on the right (stacked on phones). */
 function SettingsSection({ title, description, children }) {
@@ -57,6 +58,16 @@ export function SettingsPage() {
             {user.isPlatformAdmin && <div className="flex gap-2"><dt className="w-28 text-ink-muted">Platform</dt><dd><Badge tone="accent">Super admin</Badge></dd></div>}
           </dl>
         </SettingsSection>
+        {workspace && (
+          <SettingsSection title="Membership" description={workspace.role.key === 'OWNER' ? 'Hand ownership to someone else, or leave. The last owner must transfer ownership before leaving.' : 'Leave this organization. Your work and history stay with it.'}>
+            <MembershipActions />
+          </SettingsSection>
+        )}
+        {workspace?.role.key === 'OWNER' && (
+          <SettingsSection title="Close organization" description="Stop using TeamFlow for this organization. Data is kept and closure is reversible.">
+            <ClosureRequest />
+          </SettingsSection>
+        )}
       </div>
     </>
   );

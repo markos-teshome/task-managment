@@ -3,17 +3,18 @@ import { useNavigate } from 'react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Building2 } from 'lucide-react';
+import { Building2, CreditCard } from 'lucide-react';
 import { AuthLayout } from './AuthLayout.jsx';
 import { useAuth } from './AuthProvider.jsx';
 import { Field, FormAlert, Input } from '../../components/ui/Form.jsx';
-import { Button } from '../../components/ui/Button.jsx';
+import { Button, ButtonLink } from '../../components/ui/Button.jsx';
 import { api } from '../../lib/api.js';
 import { rules } from '../../lib/forms.js';
 
 const BLOCKED = {
   MEMBERSHIP_INACTIVE: 'Your access to your organization has been removed. Contact its owner or admin.',
   ORGANIZATION_SUSPENDED: 'Your organization is suspended. Contact TeamFlow support.',
+  ORGANIZATION_CLOSED: 'Your organization has been closed. Its data is kept; contact TeamFlow support to reopen it.',
 };
 
 /**
@@ -61,6 +62,17 @@ export function OnboardingPage() {
       }
     >
       {blocked && <FormAlert className="mb-4">{blocked}</FormAlert>}
+      {me?.blockedWorkspace?.canResolveBilling && (
+        <div className="mb-5 rounded-md border border-line p-3">
+          <p className="text-[13px] text-ink-muted">
+            You manage billing for <span className="font-medium text-ink">{me.blockedWorkspace.organization.name}</span>. You can review its plan and
+            pay while support reviews the suspension.
+          </p>
+          <ButtonLink to="/resolve-billing" icon={CreditCard} className="mt-3">
+            Resolve billing
+          </ButtonLink>
+        </div>
+      )}
 
       {me?.memberships?.length > 0 && (
         <div className="mb-5">

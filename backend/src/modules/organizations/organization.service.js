@@ -1,11 +1,13 @@
 import { prisma } from '../../lib/prisma.js';
 import { Errors } from '../../common/errors/AppError.js';
 import { DEFAULT_BRANCH_NAME, FREE_PLAN_CODE } from '../../common/constants/plans.js';
-import { randomToken } from '../../common/utils/crypto.js';
-import { slugify } from '../../common/utils/http.js';
+import { randomToken, verifyPassword } from '../../common/utils/crypto.js';
+import { fullName, slugify } from '../../common/utils/http.js';
 import { createSystemRoles } from '../roles/role.service.js';
 import { ACTIONS, logActivity } from '../activities/activity.service.js';
-import { getEntitlementSummary } from '../subscriptions/entitlement.service.js';
+import { getEntitlementSummary, isSubscriptionLive, lockOrganization } from '../subscriptions/entitlement.service.js';
+import { OWNER_ROLE_KEY } from '../../common/constants/permissions.js';
+import { releaseDuties } from '../users/member.service.js';
 
 async function uniqueSlug(tx, name) {
   const base = slugify(name);
@@ -105,6 +107,7 @@ export async function getCurrentOrganization(ctx) {
     slug: organization.slug,
     status: organization.status,
     createdAt: organization.createdAt,
+    closureRequest: organization.closureRequestedAt ? { requestedAt: organization.closureRequestedAt, reason: organization.closureReason } : null,
     ...entitlements,
   };
 }
@@ -120,6 +123,100 @@ export async function updateOrganization(ctx, { name }) {
       entityId: ctx.organizationId,
       metadata: { name },
     });
+  });
+  return getCurrentOrganization(ctx);
+}
+
+/** Sensitive organization actions are confirmed with the person's own password. */
+async function assertPassword(ctx, password) {
+  if (!password || !(await verifyPassword(password, ctx.user.passwordHash))) {
+    throw Errors.validation([{ field: 'password', message: 'Your password is not correct' }]);
+  }
+}
+
+const ownersOnly = (ctx) => {
+  if (!ctx.isOwner) throw Errors.forbidden('Only an owner can do this.', 'OWNER_ONLY');
+};
+
+/**
+ * D-7: an Owner makes another active member an Owner, and may step down to another role in the same step.
+ * Serialised with the last-owner rule (organization lock).
+ */
+export async function transferOwnership(ctx, { membershipId, password, newRoleId }) {
+  ownersOnly(ctx);
+  await assertPassword(ctx, password);
+  if (membershipId === ctx.membershipId) throw Errors.validation([{ field: 'membershipId', message: 'Choose another member' }]);
+  const [target, ownerRole, newRole] = await Promise.all([
+    prisma.membership.findFirst({ where: { id: membershipId, organizationId: ctx.organizationId, status: 'ACTIVE' }, include: { user: true } }),
+    prisma.role.findFirst({ where: { organizationId: ctx.organizationId, key: OWNER_ROLE_KEY } }),
+    newRoleId ? prisma.role.findFirst({ where: { id: newRoleId, organizationId: ctx.organizationId } }) : null,
+  ]);
+  if (!target) throw Errors.validation([{ field: 'membershipId', message: 'Choose an active member of your organization' }]);
+  if (newRoleId && (!newRole || newRole.key === OWNER_ROLE_KEY)) throw Errors.validation([{ field: 'newRoleId', message: 'Choose a role other than Owner' }]);
+
+  await prisma.$transaction(async (tx) => {
+    await lockOrganization(tx, ctx.organizationId);
+    await tx.membership.update({ where: { id: target.id }, data: { roleId: ownerRole.id } });
+    if (newRole) await tx.membership.update({ where: { id: ctx.membershipId }, data: { roleId: newRole.id } });
+    await logActivity(tx, {
+      organizationId: ctx.organizationId,
+      actorId: ctx.membershipId,
+      action: ACTIONS.OWNERSHIP_TRANSFERRED,
+      entityType: 'MEMBER',
+      entityId: target.id,
+      metadata: { memberName: fullName(target.user), ...(newRole && { steppedDownTo: newRole.name }) },
+    });
+  });
+}
+
+/**
+ * D-7: anyone may leave; the last active Owner may not (transfer ownership first). Their membership becomes
+ * inactive (history kept) and their branch-manager / project-lead duties are released (F-02).
+ */
+export async function leaveOrganization(ctx, { password }) {
+  await assertPassword(ctx, password);
+  await prisma.$transaction(async (tx) => {
+    await lockOrganization(tx, ctx.organizationId);
+    if (ctx.isOwner) {
+      const others = await tx.membership.count({
+        where: { organizationId: ctx.organizationId, status: 'ACTIVE', role: { key: OWNER_ROLE_KEY }, NOT: { id: ctx.membershipId } },
+      });
+      if (!others) throw Errors.conflict('You are the last owner. Transfer ownership to someone else before leaving.', 'LAST_OWNER');
+    }
+    const member = await tx.membership.update({ where: { id: ctx.membershipId }, data: { status: 'DEACTIVATED', deactivatedAt: new Date() }, include: { user: true } });
+    await releaseDuties(tx, ctx.organizationId, member, ctx.membershipId);
+    await logActivity(tx, { organizationId: ctx.organizationId, actorId: ctx.membershipId, action: ACTIONS.MEMBER_LEFT, entityType: 'MEMBER', entityId: ctx.membershipId, metadata: {} });
+  });
+}
+
+/**
+ * D-9: the Owner asks TeamFlow to close the company. Nothing is deleted: the request is recorded, the paid
+ * subscription stops renewing, the company keeps working until a platform admin closes it, and the Owner can
+ * withdraw the request until then.
+ */
+export async function requestClosure(ctx, { reason, confirmName, password }) {
+  ownersOnly(ctx);
+  await assertPassword(ctx, password);
+  const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId }, include: { subscription: true } });
+  if ((confirmName ?? '').trim() !== org.name) throw Errors.validation([{ field: 'confirmName', message: 'Type the organization name exactly to confirm' }]);
+  if (org.closureRequestedAt) throw Errors.conflict('A closure request is already pending.', 'CLOSURE_ALREADY_REQUESTED');
+  await prisma.$transaction(async (tx) => {
+    await tx.organization.update({ where: { id: org.id }, data: { closureRequestedAt: new Date(), closureReason: reason, closureRequestedById: ctx.membershipId } });
+    if (isSubscriptionLive(org.subscription) && org.subscription.currentPeriodEnd) {
+      await tx.subscription.update({ where: { id: org.subscription.id }, data: { cancelAtPeriodEnd: true } });
+    }
+    await logActivity(tx, { organizationId: org.id, actorId: ctx.membershipId, action: ACTIONS.CLOSURE_REQUESTED, entityType: 'ORGANIZATION', entityId: org.id, metadata: {} });
+  });
+  return getCurrentOrganization(ctx);
+}
+
+export async function withdrawClosure(ctx) {
+  ownersOnly(ctx);
+  const org = await prisma.organization.findUnique({ where: { id: ctx.organizationId } });
+  if (!org.closureRequestedAt) throw Errors.conflict('There is no pending closure request.', 'NO_CLOSURE_REQUEST');
+  await prisma.$transaction(async (tx) => {
+    await tx.organization.update({ where: { id: org.id }, data: { closureRequestedAt: null, closureReason: null, closureRequestedById: null } });
+    await logActivity(tx, { organizationId: org.id, actorId: ctx.membershipId, action: ACTIONS.CLOSURE_WITHDRAWN, entityType: 'ORGANIZATION', entityId: org.id, metadata: {} });
   });
   return getCurrentOrganization(ctx);
 }

@@ -48,6 +48,7 @@ const TENANT_MESSAGES = {
   NO_WORKSPACE: 'Create or join an organization to continue.',
   MEMBERSHIP_INACTIVE: 'Your access to this organization has been removed. Contact your administrator.',
   ORGANIZATION_SUSPENDED: 'This organization is suspended. Contact TeamFlow support.',
+  ORGANIZATION_CLOSED: 'This organization has been closed. Contact TeamFlow support if you need access again.',
 };
 
 /**
@@ -85,3 +86,27 @@ export const requireAnyPermission =
 
 /** Convenience chain for tenant-scoped routes. */
 export const tenantRoute = [authenticate, requireTenant];
+
+/**
+ * D-13: billing routes stay open to a SUSPENDED company's billing manager (the Owner by default) so they can
+ * resolve payment — everything else stays blocked. The request then runs in that company's context with
+ * `ctx.billingResolution = true`. Closed companies are not admitted.
+ */
+export function requireTenantOrBillingResolution(req, res, next) {
+  const blocked = req.ctx?.blockedWorkspace;
+  if (req.ctx?.tenantBlockedReason === 'ORGANIZATION_SUSPENDED' && blocked?.permissions.has('BILLING_MANAGE')) {
+    Object.assign(req.ctx, {
+      membershipId: blocked.membershipId,
+      organizationId: blocked.organizationId,
+      organization: blocked.organization,
+      role: blocked.role,
+      permissions: blocked.permissions,
+      isOwner: blocked.role.key === 'OWNER',
+      billingResolution: true,
+    });
+    return next();
+  }
+  return requireTenant(req, res, next);
+}
+
+export const billingRoute = [authenticate, requireTenantOrBillingResolution];

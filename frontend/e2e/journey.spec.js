@@ -84,6 +84,7 @@ test('a new company goes from sign-up to a paid plan', async ({ page, browser })
   await projectDialog.getByLabel('Project name').fill('Warehouse Launch');
   await projectDialog.getByLabel('Status').selectOption('ACTIVE');
   await expect(projectDialog.getByLabel('Branch')).toHaveCount(0); // only the head office: no branch choice
+  await projectDialog.getByRole('checkbox', { name: /Robel Assefa/ }).check(); // only the team can be assigned (D-12)
   await projectDialog.getByRole('button', { name: 'Create project' }).click();
   await expect(page.getByRole('heading', { name: 'Warehouse Launch' })).toBeVisible();
   await page.getByRole('tab', { name: /Tasks/ }).click();

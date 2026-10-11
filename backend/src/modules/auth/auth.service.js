@@ -251,8 +251,21 @@ export async function buildMe(ctx) {
         }
       : null,
     workspaceBlockedReason: ctx.tenantBlockedReason === 'NO_WORKSPACE' && !memberships.length ? 'NO_WORKSPACE' : ctx.tenantBlockedReason,
+    // D-13: a suspended company's billing manager may open the restricted billing page.
+    blockedWorkspace: ctx.blockedWorkspace
+      ? {
+          organization: { id: ctx.blockedWorkspace.organization.id, name: ctx.blockedWorkspace.organization.name },
+          canResolveBilling: ctx.tenantBlockedReason === 'ORGANIZATION_SUSPENDED' && ctx.blockedWorkspace.permissions.has('BILLING_MANAGE'),
+        }
+      : null,
     memberships: memberships.map((m) => ({ id: m.id, organization: m.organization, roleName: m.role.name })),
   };
+}
+
+/** After leaving a company: the session moves to the person's next usable workspace (or none). */
+export async function moveSessionToDefaultWorkspace(ctx) {
+  await prisma.session.update({ where: { id: ctx.sessionId }, data: { membershipId: await defaultMembershipId(ctx.userId) } });
+  return sessionResponse(ctx.sessionId);
 }
 
 /** Changes the session's active workspace. The membership must belong to the caller. */

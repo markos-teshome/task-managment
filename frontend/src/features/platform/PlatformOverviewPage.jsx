@@ -15,6 +15,7 @@ export function PlatformOverviewPage() {
   const overview = usePlatformQuery('/overview');
   const recent = usePlatformQuery('/organizations', { pageSize: 6 });
   const suspended = usePlatformQuery('/organizations', { status: 'SUSPENDED', pageSize: 5 });
+  const closing = usePlatformQuery('/organizations', { closureRequested: true, pageSize: 5 });
   const ending = usePlatformQuery('/subscriptions', { endingWithinDays: 7, pageSize: 5 });
   // Sign-ins are routine; the overview shows actions that changed something (full log: Admin activity).
   const audit = usePlatformQuery('/audit-logs', { pageSize: 30 });
@@ -63,7 +64,13 @@ export function PlatformOverviewPage() {
           </Section>
 
           <Section title="Needs attention" id="attention">
-            <Attention suspended={suspended.data?.items} ending={ending.data?.items} loading={suspended.isLoading || ending.isLoading} />
+            <Attention
+              suspended={suspended.data?.items}
+              closing={closing.data?.items}
+              ending={ending.data?.items}
+              paidWhileSuspended={d?.paidWhileSuspended}
+              loading={suspended.isLoading || closing.isLoading || ending.isLoading}
+            />
           </Section>
         </div>
 
@@ -108,10 +115,18 @@ export function PlatformOverviewPage() {
   );
 }
 
-function Attention({ suspended = [], ending = [], loading }) {
+function Attention({ suspended = [], closing = [], ending = [], paidWhileSuspended = 0, loading }) {
   if (loading) return <Skeleton className="h-24 w-full" />;
   const rows = [
-    ...suspended.map((o) => ({ key: `s-${o.id}`, id: o.id, name: o.name, note: 'Suspended', tone: 'danger' })),
+    // D-13: paying doesn't lift a suspension — these suspended companies have a live paid subscription.
+    ...suspended.map((o) => ({
+      key: `s-${o.id}`,
+      id: o.id,
+      name: o.name,
+      note: o.subscriptionStatus === 'ACTIVE' && o.currentPeriodEnd ? 'Suspended · paid' : 'Suspended',
+      tone: 'danger',
+    })),
+    ...closing.map((o) => ({ key: `c-${o.id}`, id: o.id, name: o.name, note: `Closure requested ${formatDate(o.closureRequestedAt)}`, tone: 'warning' })),
     ...ending.map((s) => ({
       key: `e-${s.organization.id}`,
       id: s.organization.id,
@@ -123,11 +138,17 @@ function Attention({ suspended = [], ending = [], loading }) {
   if (!rows.length) {
     return (
       <p className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2.5 text-[13px] text-ink-muted">
-        <CheckCircle2 size={16} className="text-success-600" aria-hidden="true" /> Nothing needs attention: no suspended companies or subscriptions ending this week.
+        <CheckCircle2 size={16} className="text-success-600" aria-hidden="true" /> Nothing needs attention: no suspended companies, closure requests or subscriptions ending this week.
       </p>
     );
   }
   return (
+    <>
+      {paidWhileSuspended > 0 && (
+        <p className="mb-2 text-[12.5px] text-ink-muted">
+          {paidWhileSuspended} suspended {paidWhileSuspended === 1 ? 'company has' : 'companies have'} a paid subscription — review whether to reactivate.
+        </p>
+      )}
     <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
       {rows.map((r) => (
         <li key={r.key} className="flex items-center gap-2 px-3 py-2 text-[13px]">
@@ -137,5 +158,6 @@ function Attention({ suspended = [], ending = [], loading }) {
         </li>
       ))}
     </ul>
+    </>
   );
 }

@@ -15,6 +15,7 @@ import { PriorityLabel, StatusBadge } from '../../components/ui/Badge.jsx';
 import { Avatar } from '../../components/ui/Avatar.jsx';
 import { Progress } from '../../components/ui/Progress.jsx';
 import { FilterSelect, SearchInput, Skeleton, Tabs, Pagination } from '../../components/ui/Misc.jsx';
+import { Field, Input } from '../../components/ui/Form.jsx';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '../../components/ui/Menu.jsx';
 import { ConfirmDialog, Modal, DialogBody, DialogFooter, DialogClose } from '../../components/ui/Dialog.jsx';
 import { Section } from '../../components/layout/PageHeader.jsx';
@@ -54,13 +55,17 @@ export function ProjectDetailPage() {
 }
 
 function ProjectWorkspace({ project }) {
-  const { can } = useAuth();
+  const { can, workspace } = useAuth();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [typedName, setTypedName] = useState('');
   const archive = useArchiveProject(project.id);
-  const remove = useDeleteProject(project.id);
+  const remove = useDeleteProject(project.id, () => {
+    toast.success('Project permanently deleted');
+    navigate('/projects', { replace: true });
+  });
 
   const tab = params.get('tab') ?? 'overview';
   const setTab = (value) =>
@@ -84,7 +89,10 @@ function ProjectWorkspace({ project }) {
       onError: (err) => toast.error(err.message),
     });
 
-  const canManage = can('PROJECT_UPDATE') || can('PROJECT_DELETE');
+  // The API says what this person may do here (management scope, D-3); permanent deletion is the
+  // Owner's, only for archived projects (D-1).
+  const canManage = project.canManage;
+  const canDelete = workspace?.role.key === 'OWNER' && can('PROJECT_DELETE') && !!project.archivedAt;
 
   return (
     <>
@@ -97,7 +105,7 @@ function ProjectWorkspace({ project }) {
           <span className="flex items-center gap-2">
             <Archive size={15} aria-hidden="true" /> This project was archived on {formatLongDate(project.archivedAt)}. It is read-only.
           </span>
-          {can('PROJECT_UPDATE') && (
+          {canManage && (
             <Button size="sm" icon={ArchiveRestore} loading={archive.isPending} onClick={toggleArchive}>
               Restore
             </Button>
@@ -121,27 +129,27 @@ function ProjectWorkspace({ project }) {
           {project.description && <p className="mt-1 max-w-3xl text-[13px] text-ink-muted">{project.description}</p>}
         </div>
         <div className="flex items-center gap-2">
-          {can('PROJECT_UPDATE') && !project.archivedAt && (
+          {canManage && !project.archivedAt && (
             <Button icon={Pencil} onClick={() => setEditing(true)}>
               Edit
             </Button>
           )}
-          {canManage && (
+          {(canManage || canDelete) && (
             <Menu>
               <MenuTrigger asChild>
                 <Button size="icon" icon={MoreHorizontal} aria-label="More project actions" />
               </MenuTrigger>
               <MenuContent>
-                {can('PROJECT_UPDATE') && (
+                {canManage && (
                   <MenuItem icon={project.archivedAt ? ArchiveRestore : Archive} onSelect={toggleArchive}>
                     {project.archivedAt ? 'Restore project' : 'Archive project'}
                   </MenuItem>
                 )}
-                {can('PROJECT_DELETE') && (
+                {canDelete && (
                   <>
                     <MenuSeparator />
                     <MenuItem icon={Trash2} tone="danger" onSelect={() => setConfirmDelete(true)}>
-                      Delete project
+                      Delete permanently…
                     </MenuItem>
                   </>
                 )}
@@ -182,21 +190,23 @@ function ProjectWorkspace({ project }) {
       <ProjectFormModal open={editing} onOpenChange={setEditing} project={project} />
       <ConfirmDialog
         open={confirmDelete}
-        onOpenChange={setConfirmDelete}
-        title="Delete project?"
-        description={`“${project.name}” and its ${pluralize(project.stats.total, 'task')} will be permanently deleted. Archive it instead if you may need it later.`}
-        confirmLabel="Delete project"
+        onOpenChange={(open) => {
+          setConfirmDelete(open);
+          setTypedName('');
+        }}
+        title="Permanently delete this project?"
+        description={`“${project.name}” and its ${pluralize(project.stats.total, 'task')} will be deleted for good. The activity history keeps a record of the project and of this deletion. This cannot be undone.`}
+        confirmLabel="Delete permanently"
         loading={remove.isPending}
         onConfirm={() =>
-          remove.mutate(undefined, {
-            onSuccess: () => {
-              toast.success('Project deleted');
-              navigate('/projects', { replace: true });
-            },
-            onError: (err) => toast.error(err.message),
-          })
+          typedName.trim() === project.name &&
+          remove.mutate(typedName.trim(), { onError: (err) => toast.error(err.message) })
         }
-      />
+      >
+        <Field label={`Type “${project.name}” to confirm`} className="mt-3">
+          <Input value={typedName} onChange={(e) => setTypedName(e.target.value)} autoComplete="off" />
+        </Field>
+      </ConfirmDialog>
     </>
   );
 }
@@ -277,7 +287,8 @@ function TasksTab({ project }) {
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
   const { data, isLoading, error, refetch } = useTasks({ projectId: project.id, search, status, page, pageSize: 50, sort: 'dueDate', order: 'asc' });
-  const canCreate = can('TASK_CREATE') && !project.archivedAt;
+  // D-3/D-6: tasks are created in projects the person manages or is on; archived projects are read-only.
+  const canCreate = can('TASK_CREATE') && project.inScope && !project.archivedAt;
 
   return (
     <>
@@ -315,12 +326,11 @@ function TasksTab({ project }) {
 }
 
 function TeamTab({ project }) {
-  const { can } = useAuth();
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState([]);
   const add = useAddProjectMembers(project.id);
   const removeMember = useRemoveProjectMember(project.id);
-  const canEdit = can('PROJECT_UPDATE') && !project.archivedAt;
+  const canEdit = project.canManage && !project.archivedAt;
 
   const submit = () =>
     add.mutate(selected, {

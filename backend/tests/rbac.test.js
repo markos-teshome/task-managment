@@ -172,7 +172,7 @@ describe('project and task permissions', () => {
   });
 
   it("employee can update the status of their own task but nothing else", async () => {
-    const project = await createProject(tokens.manager);
+    const project = await createProject(tokens.manager, { memberIds: [T.members.employee.membership.id, T.members.employee2.membership.id] });
     const mine = await createTask(tokens.manager, project.id, { assigneeId: T.members.employee.membership.id });
     const theirs = await createTask(tokens.manager, project.id, { assigneeId: T.members.employee2.membership.id });
     const api = as(tokens.employee);
@@ -188,7 +188,7 @@ describe('project and task permissions', () => {
   });
 
   it('completing a task is recorded in the activity history', async () => {
-    const project = await createProject(tokens.manager);
+    const project = await createProject(tokens.manager, { memberIds: [T.members.employee.membership.id] });
     const task = await createTask(tokens.manager, project.id, { title: 'Create Login', assigneeId: T.members.employee.membership.id });
     await as(tokens.employee).patch(`/tasks/${task.id}`).send({ status: 'COMPLETED' });
 
@@ -198,15 +198,17 @@ describe('project and task permissions', () => {
     expect(entry.actor.id).toBe(T.members.employee.membership.id);
   });
 
-  it('assigning a member who is not on the team adds them to the project', async () => {
+  it('D-12: a task can only be assigned to someone already on the project team', async () => {
     const project = await createProject(tokens.manager);
-    await createTask(tokens.manager, project.id, { assigneeId: T.members.employee2.membership.id });
-    const res = await as(tokens.manager).get(`/projects/${project.id}`);
-    expect(res.body.data.members.map((m) => m.id)).toContain(T.members.employee2.membership.id);
+    const refused = await as(tokens.manager).post('/tasks').send({ projectId: project.id, title: 'Cross-team', assigneeId: T.members.employee2.membership.id });
+    expect(refused.status).toBe(422);
+    expect(refused.body.error.details[0]).toMatchObject({ field: 'assigneeId', message: 'Add this person to the project team first' });
+    await as(tokens.manager).post(`/projects/${project.id}/members`).send({ membershipIds: [T.members.employee2.membership.id] });
+    expect((await as(tokens.manager).post('/tasks').send({ projectId: project.id, title: 'Cross-team', assigneeId: T.members.employee2.membership.id })).status).toBe(201);
   });
 
   it('deactivated members cannot receive new assignments but keep their history', async () => {
-    const project = await createProject(tokens.manager);
+    const project = await createProject(tokens.manager, { memberIds: [T.members.employee2.membership.id] });
     const task = await createTask(tokens.manager, project.id, { assigneeId: T.members.employee2.membership.id });
     await as(tokens.owner).patch(`/users/${T.members.employee2.membership.id}`).send({ status: 'DEACTIVATED' });
 

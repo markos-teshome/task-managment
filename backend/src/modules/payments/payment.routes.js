@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { tenantRoute, requirePermission } from '../../common/middleware/auth.js';
+import { billingRoute, requirePermission } from '../../common/middleware/auth.js';
 import { validate } from '../../common/middleware/validate.js';
 import { id, pagination } from '../../common/validators/index.js';
 import { ok, created } from '../../common/utils/http.js';
@@ -23,7 +23,7 @@ router.get('/webhooks/chapa', async (req, res) => {
   ok(res, { received: true });
 });
 
-router.use(tenantRoute);
+router.use(billingRoute); // D-13: also open to a suspended company's billing manager
 
 router.get('/', requirePermission('BILLING_VIEW'), validate({ query: listQuery }), async (req, res) => {
   const { items, meta } = await payments.listPayments(req.ctx, req.valid.query);

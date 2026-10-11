@@ -26,6 +26,8 @@ const filters = {
   priority: csvEnum(priority),
   assigneeId: z.union([z.literal('me'), z.literal('unassigned'), id]).optional(),
   due: z.enum(['overdue', 'today', 'week', 'none']).optional(),
+  // D-11: include tasks of archived projects (read-only history).
+  includeArchived: z.enum(['true', 'false']).optional().transform((v) => v === 'true'),
 };
 
 const listQuery = z.object({

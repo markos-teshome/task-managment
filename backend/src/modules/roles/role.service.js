@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { Errors } from '../../common/errors/AppError.js';
-import { OWNER_ROLE_KEY, PERMISSION_CATALOG, SYSTEM_ROLES } from '../../common/constants/permissions.js';
+import { OWNER_ROLE_KEY, PERMISSION_CATALOG, SYSTEM_ROLES, OWNER_ONLY_PERMISSIONS } from '../../common/constants/permissions.js';
 import { ACTIONS, logActivity } from '../activities/activity.service.js';
 
 const permissionIdMap = async (db) =>
@@ -51,6 +51,14 @@ export function assertWithinOwnPermissions(ctx, permissionKeys) {
   }
 }
 
+/** Owner-only permissions (e.g. permanent project deletion) can't be put in any other role. */
+function assertNoOwnerOnly(permissionKeys) {
+  const reserved = permissionKeys.filter((p) => OWNER_ONLY_PERMISSIONS.includes(p));
+  if (reserved.length) {
+    throw Errors.validation([{ field: 'permissions', message: `Only the Owner role can hold: ${reserved.join(', ')}` }]);
+  }
+}
+
 export async function listRoles(ctx) {
   const roles = await prisma.role.findMany({
     where: { organizationId: ctx.organizationId },
@@ -61,7 +69,7 @@ export async function listRoles(ctx) {
 }
 
 export const listPermissionCatalog = () =>
-  PERMISSION_CATALOG.map(({ key, group, label, description }) => ({ key, group, label, description }));
+  PERMISSION_CATALOG.map(({ key, group, label, description }) => ({ key, group, label, description, ownerOnly: OWNER_ONLY_PERMISSIONS.includes(key) }));
 
 async function findRole(ctx, id) {
   const role = await prisma.role.findFirst({ where: { id, organizationId: ctx.organizationId }, include: roleInclude });
@@ -78,6 +86,7 @@ async function assertNameFree(tx, organizationId, name, exceptId) {
 
 export async function createRole(ctx, { name, description, permissions }) {
   assertWithinOwnPermissions(ctx, permissions);
+  assertNoOwnerOnly(permissions);
   const ids = await permissionIdMap(prisma);
 
   const role = await prisma.$transaction(async (tx) => {
@@ -113,7 +122,10 @@ export async function updateRole(ctx, id, { name, description, permissions }) {
     throw Errors.badRequest('Default roles cannot be renamed.');
   }
   // Changing a role grants its permissions to everyone holding it.
-  if (permissions) assertWithinOwnPermissions(ctx, permissions);
+  if (permissions) {
+    assertWithinOwnPermissions(ctx, permissions);
+    assertNoOwnerOnly(permissions);
+  }
   const ids = await permissionIdMap(prisma);
 
   const updated = await prisma.$transaction(async (tx) => {

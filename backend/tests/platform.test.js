@@ -119,7 +119,7 @@ describe('privacy: allowlisted company metadata only', () => {
     const list = await platform(agent).get('/platform/organizations?search=abay');
     expect(list.status).toBe(200);
     const [org] = list.body.data;
-    expect(Object.keys(org).sort()).toEqual(['activeBranches', 'activeMembers', 'createdAt', 'currentPeriodEnd', 'id', 'name', 'plan', 'status', 'subscriptionStatus']);
+    expect(Object.keys(org).sort()).toEqual(['activeBranches', 'activeMembers', 'closureRequestedAt', 'createdAt', 'currentPeriodEnd', 'id', 'name', 'plan', 'status', 'subscriptionStatus']);
     expect(org).toMatchObject({ name: 'Abay Trading PLC', activeMembers: 2, activeBranches: 1, plan: { code: 'FREE' } });
 
     const detail = await platform(agent).get(`/platform/organizations/${A.org.id}`);

@@ -18,7 +18,7 @@ import { OrganizationStatusDialog, usePlatformQuery } from './shared.jsx';
 export function PlatformOrganizationsPage() {
   useDocumentTitle('Organizations');
   const navigate = useNavigate();
-  const { filters, setFilters, clear, activeCount } = useUrlFilters(['search', 'status', 'planCode', 'page']);
+  const { filters, setFilters, clear, activeCount } = useUrlFilters(['search', 'status', 'planCode', 'closureRequested', 'page']);
   const { data, isLoading, isFetching, error, refetch } = usePlatformQuery('/organizations', { ...filters, pageSize: 25 });
   const plans = usePlatformQuery('/plans');
   const [changing, setChanging] = useState(null);
@@ -66,6 +66,13 @@ export function PlatformOrganizationsPage() {
         onClear={clear}
       >
         <FilterSelect label="Status" value={filters.status} onChange={(status) => setFilters({ status })} options={options(ORG_STATUS)} allLabel="Any status" />
+        <FilterSelect
+          label="Closure"
+          value={filters.closureRequested}
+          onChange={(closureRequested) => setFilters({ closureRequested })}
+          options={[{ value: 'true', label: 'Closure requested' }]}
+          allLabel="Any closure state"
+        />
         <FilterSelect
           label="Plan"
           value={filters.planCode}

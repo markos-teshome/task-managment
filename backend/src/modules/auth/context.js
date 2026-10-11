@@ -45,7 +45,15 @@ export async function loadSessionContext(sessionId) {
   } else if (membership.status !== 'ACTIVE') {
     ctx.tenantBlockedReason = 'MEMBERSHIP_INACTIVE';
   } else if (membership.organization.status !== 'ACTIVE') {
-    ctx.tenantBlockedReason = 'ORGANIZATION_SUSPENDED';
+    ctx.tenantBlockedReason = membership.organization.status === 'CLOSED' ? 'ORGANIZATION_CLOSED' : 'ORGANIZATION_SUSPENDED';
+    // D-13: who this person is in the blocked company, so billing routes can admit its owner (see auth.js).
+    ctx.blockedWorkspace = {
+      membershipId: membership.id,
+      organizationId: membership.organizationId,
+      organization: membership.organization,
+      role: { id: membership.role.id, key: membership.role.key, name: membership.role.name },
+      permissions: new Set(membership.role.permissions.map((rp) => rp.permission.key)),
+    };
   } else {
     ctx.membershipId = membership.id;
     ctx.organizationId = membership.organizationId;

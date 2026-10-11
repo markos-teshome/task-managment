@@ -51,7 +51,10 @@ const createBody = z
   .strict();
 
 const updateBody = z
-  .object(Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v.optional()])))
+  .object({
+    ...Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v.optional()])),
+    confirmOpenTasks: z.boolean().optional(), // D-4: confirm completing with unfinished tasks
+  })
   .strict()
   .refine((b) => Object.keys(b).length > 0, 'Nothing to update');
 
@@ -83,8 +86,8 @@ router.post('/:id/restore', requirePermission('PROJECT_UPDATE'), validate({ para
   ok(res, await projects.setArchived(req.ctx, req.valid.params.id, false));
 });
 
-router.delete('/:id', requirePermission('PROJECT_DELETE'), validate({ params: idParam }), async (req, res) => {
-  await projects.deleteProject(req.ctx, req.valid.params.id);
+router.delete('/:id', requirePermission('PROJECT_DELETE'), validate({ params: idParam, body: z.object({ confirmName: z.string().max(100).optional() }).strict() }), async (req, res) => {
+  await projects.deleteProject(req.ctx, req.valid.params.id, req.valid.body);
   ok(res, { deleted: true });
 });
 

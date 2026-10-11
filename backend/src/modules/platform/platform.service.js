@@ -24,6 +24,8 @@ import { ACTIONS, logActivity } from '../activities/activity.service.js';
 export const PLATFORM_ACTIONS = {
   ORGANIZATION_SUSPENDED: 'ORGANIZATION_SUSPENDED',
   ORGANIZATION_REACTIVATED: 'ORGANIZATION_REACTIVATED',
+  ORGANIZATION_CLOSED: 'ORGANIZATION_CLOSED',
+  ORGANIZATION_REOPENED: 'ORGANIZATION_REOPENED',
   PLAN_CREATED: 'PLAN_CREATED',
   PLAN_UPDATED: 'PLAN_UPDATED',
   PLATFORM_ADMIN_CREATED: 'PLATFORM_ADMIN_CREATED',
@@ -40,9 +42,13 @@ const DAY = 86_400_000;
 export async function overview() {
   const soon = new Date(Date.now() + 7 * DAY);
   const now = new Date();
-  const [organizations, suspended, users, revenue, byPlan, plans, failedPayments, expiring, paidLive, pendingPayments] = await Promise.all([
+  const [organizations, suspended, closed, closureRequests, paidWhileSuspended, users, revenue, byPlan, plans, failedPayments, expiring, paidLive, pendingPayments] = await Promise.all([
     prisma.organization.count(),
     prisma.organization.count({ where: { status: 'SUSPENDED' } }),
+    prisma.organization.count({ where: { status: 'CLOSED' } }),
+    prisma.organization.count({ where: { closureRequestedAt: { not: null }, status: { not: 'CLOSED' } } }),
+    // D-13: paying doesn't reactivate a suspended organization — the platform reviews these.
+    prisma.organization.count({ where: { status: 'SUSPENDED', subscription: { status: 'ACTIVE', currentPeriodEnd: { gt: now } } } }),
     prisma.user.count(),
     prisma.payment.groupBy({ by: ['currency'], where: { status: 'SUCCEEDED' }, _sum: { amountCents: true }, _count: { _all: true } }),
     prisma.subscription.groupBy({ by: ['planId'], _count: { _all: true } }),
@@ -55,8 +61,11 @@ export async function overview() {
   ]);
   return {
     organizations,
-    activeOrganizations: organizations - suspended,
+    activeOrganizations: organizations - suspended - closed,
     suspended,
+    closed,
+    closureRequests,
+    paidWhileSuspended,
     users,
     activePaidSubscriptions: paidLive,
     pendingPayments,
@@ -73,6 +82,9 @@ const orgSelect = {
   name: true,
   status: true,
   createdAt: true,
+  closureRequestedAt: true,
+  closureReason: true,
+  closedAt: true,
   subscription: {
     select: {
       status: true,
@@ -95,6 +107,7 @@ const presentOrg = (o) => ({
   plan: o.subscription ? { code: o.subscription.plan.code, name: o.subscription.plan.name } : null,
   subscriptionStatus: displayStatus(o.subscription),
   currentPeriodEnd: o.subscription?.currentPeriodEnd ?? null,
+  closureRequestedAt: o.closureRequestedAt, // the Owner asked TeamFlow to close the company (D-9)
 });
 
 export async function listOrganizations(query) {
@@ -103,6 +116,7 @@ export async function listOrganizations(query) {
     ...(query.search && { name: { contains: query.search, mode: 'insensitive' } }),
     ...(query.status && { status: query.status }),
     ...(query.planCode && { subscription: { plan: { code: query.planCode } } }),
+    ...(query.closureRequested && { closureRequestedAt: { not: null }, status: { not: 'CLOSED' } }),
   };
   const [items, total] = await prisma.$transaction([
     prisma.organization.findMany({ where, select: orgSelect, orderBy: { createdAt: 'desc' }, skip, take }),
@@ -137,25 +151,40 @@ export async function getOrganization(id) {
         }
       : null,
     billingContacts: owners.map((o) => ({ name: `${o.user.firstName} ${o.user.lastName}`, email: o.user.email })),
+    closure: org.closureRequestedAt || org.closedAt ? { requestedAt: org.closureRequestedAt, reason: org.closureReason, closedAt: org.closedAt } : null,
     payments: { succeeded: paid._count._all, totalPaidCents: paid._sum.amountCents ?? 0, failed, last: lastPayment },
   };
 }
 
 /**
- * Suspends or reactivates an organization. Its data, billing and history are kept; members are refused by
- * the tenant API (ORGANIZATION_SUSPENDED) until it is reactivated. A reason is required to suspend.
+ * Changes an organization's status. Nothing is ever deleted: data, billing and history are kept.
+ *  SUSPENDED — members refused (reason required); the billing manager may still resolve payment.
+ *  CLOSED    — processing the Owner's closure request (D-9); members refused; reversible.
+ *  ACTIVE    — reactivate / reopen (a reopened company's closure request is cleared).
  */
 export async function setOrganizationStatus(actor, id, { status, reason }, ipAddress) {
   const org = await prisma.organization.findUnique({ where: { id }, select: { id: true, name: true, status: true } });
   if (!org) throw Errors.notFound('Organization');
   if (status === 'SUSPENDED' && !reason) throw Errors.validation([{ field: 'reason', message: 'Give a reason for the suspension' }]);
   if (org.status !== status) {
-    const suspended = status === 'SUSPENDED';
+    const platformAction = {
+      SUSPENDED: PLATFORM_ACTIONS.ORGANIZATION_SUSPENDED,
+      CLOSED: PLATFORM_ACTIONS.ORGANIZATION_CLOSED,
+      ACTIVE: org.status === 'CLOSED' ? PLATFORM_ACTIONS.ORGANIZATION_REOPENED : PLATFORM_ACTIONS.ORGANIZATION_REACTIVATED,
+    }[status];
+    const tenantAction = { SUSPENDED: ACTIONS.ORGANIZATION_SUSPENDED, CLOSED: ACTIONS.ORGANIZATION_CLOSED, ACTIVE: ACTIONS.ORGANIZATION_REACTIVATED }[status];
     await prisma.$transaction(async (tx) => {
-      await tx.organization.update({ where: { id }, data: { status } });
+      await tx.organization.update({
+        where: { id },
+        data: {
+          status,
+          ...(status === 'CLOSED' && { closedAt: new Date() }),
+          ...(status === 'ACTIVE' && org.status === 'CLOSED' && { closedAt: null, closureRequestedAt: null, closureReason: null, closureRequestedById: null }),
+        },
+      });
       await recordPlatformAction(tx, {
         actorId: actor.id,
-        action: suspended ? PLATFORM_ACTIONS.ORGANIZATION_SUSPENDED : PLATFORM_ACTIONS.ORGANIZATION_REACTIVATED,
+        action: platformAction,
         targetType: 'ORGANIZATION',
         targetId: id,
         metadata: { name: org.name, ...(reason && { reason }) },
@@ -165,7 +194,7 @@ export async function setOrganizationStatus(actor, id, { status, reason }, ipAdd
       await logActivity(tx, {
         organizationId: id,
         actorId: null,
-        action: suspended ? ACTIONS.ORGANIZATION_SUSPENDED : ACTIONS.ORGANIZATION_REACTIVATED,
+        action: tenantAction,
         entityType: 'ORGANIZATION',
         entityId: id,
         metadata: { name: org.name },

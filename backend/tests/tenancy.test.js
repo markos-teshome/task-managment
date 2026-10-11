@@ -14,7 +14,7 @@ beforeEach(async () => {
   B = await createTenant({ name: 'Gift Construction PLC', members: [{ key: 'emp', role: 'EMPLOYEE' }] });
   tokenA = await login(A.owner.user.email);
   tokenB = await login(B.owner.user.email);
-  projectB = await createProject(tokenB, { name: 'Bole Apartment Block' });
+  projectB = await createProject(tokenB, { name: 'Bole Apartment Block', memberIds: [B.members.emp.membership.id] });
   taskB = await createTask(tokenB, projectB.id, { title: 'Site safety audit', assigneeId: B.members.emp.membership.id });
 });
 

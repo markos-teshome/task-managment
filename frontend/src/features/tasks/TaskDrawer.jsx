@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import { useDeleteTask, useTask, useTaskActivity, useUpdateTask } from './api.js';
 import { DueLabel, TaskStatusMenu, useTaskAbilities } from './components.jsx';
-import { useMemberOptions } from '../team/api.js';
+import { useProject } from '../projects/api.js';
 import { Drawer, ConfirmDialog, DialogClose } from '../../components/ui/Dialog.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { Input, Select, Textarea } from '../../components/ui/Form.jsx';
@@ -75,10 +75,12 @@ function Property({ icon: Icon, label, children }) {
 
 function TaskView({ task, onClose }) {
   const { can } = useAuth();
-  const { canEdit, canAssign, canDelete } = useTaskAbilities(task);
+  const { canEdit, canAssign, canDelete, readOnly } = useTaskAbilities(task);
   const update = useUpdateTask();
   const remove = useDeleteTask();
-  const members = useMemberOptions();
+  // D-12: only people on the project team can be assigned.
+  const project = useProject(canAssign ? task.project.id : null);
+  const team = (project.data?.members ?? []).filter((m) => m.status === 'ACTIVE');
   const activity = useTaskActivity(task.id, can('ACTIVITY_VIEW'));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [title, setTitle] = useState(task.title);
@@ -128,6 +130,11 @@ function TaskView({ task, onClose }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+        {readOnly && (
+          <p className="mb-3 rounded-md border border-line bg-slate-50 px-3 py-2 text-[12.5px] text-ink-muted">
+            This task belongs to an archived project. It is kept as read-only history.
+          </p>
+        )}
         {canEdit ? (
           <textarea
             aria-label="Task title"
@@ -155,10 +162,13 @@ function TaskView({ task, onClose }) {
                 className="max-w-60"
               >
                 <option value="">Unassigned</option>
-                {task.assignee && !members.data?.some((m) => m.id === task.assignee.id) && (
-                  <option value={task.assignee.id}>{task.assignee.name} (deactivated)</option>
+                {task.assignee && !team.some((m) => m.id === task.assignee.id) && (
+                  <option value={task.assignee.id}>
+                    {task.assignee.name}
+                    {task.assignee.status === 'ACTIVE' ? '' : ' (deactivated)'}
+                  </option>
                 )}
-                {members.data?.map((m) => (
+                {team.map((m) => (
                   <option key={m.id} value={m.id}>{m.name}</option>
                 ))}
               </Select>

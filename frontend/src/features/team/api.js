@@ -8,11 +8,13 @@ export const useMembers = (params) =>
 
 /** Active members for pickers. Only fetched when the caller may use them. */
 export function useMemberOptions() {
-  const { canAny } = useAuth();
+  const { canAny, workspace } = useAuth();
+  // Branch managers pick their branch's people even without a people permission (F-01).
+  const managesBranch = workspace?.myBranches?.some((b) => b.isManager);
   return useQuery({
     queryKey: ['member-options'],
     queryFn: () => api.get('/users/options'),
-    enabled: canAny('USER_VIEW', 'TASK_ASSIGN', 'PROJECT_CREATE', 'PROJECT_UPDATE'),
+    enabled: canAny('USER_VIEW', 'TASK_ASSIGN', 'PROJECT_CREATE', 'PROJECT_UPDATE') || !!managesBranch,
     staleTime: 60_000,
   });
 }
@@ -33,6 +35,10 @@ function useMemberMutation(fn) {
 }
 
 export const useInviteMember = () => useMemberMutation((body) => api.post('/users', body));
+/** What a member is responsible for — shown before deactivating them (F-02). */
+export const useMemberResponsibilities = (id) =>
+  useQuery({ queryKey: ['member-responsibilities', id], queryFn: () => api.get(`/users/${id}/responsibilities`), enabled: !!id });
+
 export const useUpdateMember = () => useMemberMutation(({ id, ...body }) => api.patch(`/users/${id}`, body));
 export const useRemoveMember = () => useMemberMutation((id) => api.delete(`/users/${id}`));
 /** A resend issues a new link with a fresh expiry, so the list's invitation status changes too. */

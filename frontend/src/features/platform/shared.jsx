@@ -54,6 +54,8 @@ export const AUDIT_LABELS = {
   PLATFORM_SIGNED_IN: 'Signed in to the console',
   ORGANIZATION_SUSPENDED: 'Suspended organization',
   ORGANIZATION_REACTIVATED: 'Reactivated organization',
+  ORGANIZATION_CLOSED: 'Closed organization',
+  ORGANIZATION_REOPENED: 'Reopened organization',
   PLAN_CREATED: 'Created plan',
   PLAN_UPDATED: 'Changed plan',
   PLATFORM_ADMIN_CREATED: 'Platform admin created',
@@ -70,20 +72,48 @@ export function describeAudit(entry) {
   return `${AUDIT_LABELS[entry.action] ?? entry.action}${target ? ` ${target}` : ''}${extra}`;
 }
 
+const STATUS_CHANGE = {
+  SUSPENDED: {
+    title: (n) => `Suspend ${n}?`,
+    body: 'Its members lose access on their next request and see that the organization is suspended. No data, billing or history is deleted, and you can reactivate it at any time.',
+    label: 'Suspend organization',
+    done: (n) => `${n} suspended`,
+    tone: 'danger',
+  },
+  CLOSED: {
+    title: (n) => `Close ${n}?`,
+    body: 'Processes the owner’s closure request. Members are refused; all data, billing and history are kept, and you can reopen it later.',
+    label: 'Close organization',
+    done: (n) => `${n} closed`,
+    tone: 'danger',
+  },
+  ACTIVE: {
+    title: (n) => `Reactivate ${n}?`,
+    body: 'Its members regain access on their next request, with their data exactly as it was.',
+    label: 'Reactivate',
+    done: (n) => `${n} reactivated`,
+    tone: 'primary',
+  },
+};
+
 /**
- * Suspend or reactivate an organization. Suspension requires a reason (recorded in the audit log); it blocks
- * the company's members but deletes nothing. The server's answer is the source of truth.
+ * Suspend, close (D-9) or reactivate an organization. Suspension requires a reason (recorded in the audit log);
+ * none of these deletes anything. The server's answer is the source of truth. `target` defaults to the
+ * suspend/reactivate toggle.
  */
-export function OrganizationStatusDialog({ org, onClose }) {
+export function OrganizationStatusDialog({ org, target, onClose }) {
   const qc = useQueryClient();
   const [reason, setReason] = useState('');
   const [error, setError] = useState(null);
-  const suspending = org?.status === 'ACTIVE';
+  const status = target ?? (org?.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE');
+  const copy = STATUS_CHANGE[status];
+  const suspending = status === 'SUSPENDED';
+  const reopening = status === 'ACTIVE' && org?.status === 'CLOSED';
   const mutation = useMutation({
-    mutationFn: () => api.patch(`/platform/organizations/${org.id}/status`, { status: suspending ? 'SUSPENDED' : 'ACTIVE', ...(suspending && { reason: reason.trim() }) }),
+    mutationFn: () => api.patch(`/platform/organizations/${org.id}/status`, { status, ...(reason.trim() && { reason: reason.trim() }) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['platform'] });
-      toast.success(suspending ? `${org.name} suspended` : `${org.name} reactivated`);
+      toast.success(reopening ? `${org.name} reopened` : copy.done(org.name));
       setReason('');
       onClose();
     },
@@ -98,14 +128,10 @@ export function OrganizationStatusDialog({ org, onClose }) {
     <ConfirmDialog
       open={!!org}
       onOpenChange={(open) => !open && close()}
-      title={suspending ? `Suspend ${org?.name}?` : `Reactivate ${org?.name}?`}
-      description={
-        suspending
-          ? 'Its members lose access on their next request and see that the organization is suspended. No data, billing or history is deleted, and you can reactivate it at any time.'
-          : 'Its members regain access on their next request, with their data exactly as it was.'
-      }
-      confirmLabel={suspending ? 'Suspend organization' : 'Reactivate'}
-      tone={suspending ? 'danger' : 'primary'}
+      title={reopening ? `Reopen ${org?.name}?` : copy.title(org?.name)}
+      description={reopening ? 'Its members regain access with their data exactly as it was. The closure request is cleared.' : copy.body}
+      confirmLabel={reopening ? 'Reopen' : copy.label}
+      tone={copy.tone}
       loading={mutation.isPending}
       onConfirm={() => {
         if (suspending && reason.trim().length < 3) return setError({ message: 'Give a short reason for the suspension.' });

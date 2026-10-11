@@ -120,7 +120,8 @@ export async function startCheckout(ctx, { planId }) {
     const init = await provider.initialize({
       payment,
       customer: ctx.user,
-      returnUrl: `${config.APP_URL}/billing/return?tx_ref=${payment.txRef}`,
+      // A suspended company resolving billing comes back to its restricted billing page (D-13).
+      returnUrl: `${config.APP_URL}/${ctx.billingResolution ? 'resolve-billing' : 'billing'}/return?tx_ref=${payment.txRef}`,
       callbackUrl: `${config.API_URL}/api/v1/payments/webhooks/chapa`,
     });
     const updated = await prisma.payment.update({

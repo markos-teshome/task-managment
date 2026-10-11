@@ -28,6 +28,8 @@ const RolesPage = page(() => import('../features/roles/RolesPage.jsx'), 'RolesPa
 const ActivityPage = page(() => import('../features/activity/ActivityPage.jsx'), 'ActivityPage');
 const BillingPage = page(() => import('../features/billing/BillingPage.jsx'), 'BillingPage');
 const PaymentReturnPage = page(() => import('../features/billing/PaymentReturnPage.jsx'), 'PaymentReturnPage');
+const ResolveBillingPage = page(() => import('../features/billing/ResolveBillingPage.jsx'), 'ResolveBillingPage');
+const ResolveBillingReturnPage = page(() => import('../features/billing/ResolveBillingPage.jsx'), 'ResolveBillingReturnPage');
 const SettingsPage = page(() => import('../features/settings/SettingsPage.jsx'), 'SettingsPage');
 const PlatformLoginPage = page(() => import('../features/platform/PlatformAuth.jsx'), 'PlatformLoginPage');
 const PlatformOverviewPage = page(() => import('../features/platform/PlatformOverviewPage.jsx'), 'PlatformOverviewPage');
@@ -94,6 +96,9 @@ export const router = createBrowserRouter([
     element: <RequireAuth />,
     children: [
       { path: '/onboarding', element: <OnboardingGate>{standalone(<OnboardingPage />)}</OnboardingGate> },
+      // D-13: a suspended organization's billing holder can pay from outside the workspace.
+      { path: '/resolve-billing', element: <OnboardingGate>{standalone(<ResolveBillingPage />)}</OnboardingGate> },
+      { path: '/resolve-billing/return', element: <OnboardingGate>{standalone(<ResolveBillingReturnPage />)}</OnboardingGate> },
       {
         element: <RequireWorkspace />,
         children: [

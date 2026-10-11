@@ -18,11 +18,12 @@ test('owner runs the organization end to end', async ({ page }) => {
   await projectDialog.getByLabel('Project name').fill(projectName);
   await projectDialog.getByLabel('Status').selectOption('ACTIVE');
   await projectDialog.getByLabel('Responsible person').selectOption({ label: 'Dawit Bekele — Project Manager' });
+  await projectDialog.getByRole('checkbox', { name: /Hana Tadesse/ }).check(); // only the team can be assigned (D-12)
   await projectDialog.getByRole('button', { name: 'Create project' }).click();
   await expect(page.getByRole('heading', { name: projectName })).toBeVisible();
   await expect(page.getByText('Project created')).toBeVisible();
 
-  // Add a task assigned to an employee.
+  // Add a task assigned to an employee on the team.
   await page.getByRole('tab', { name: /Tasks/ }).click();
   await page.getByRole('button', { name: 'Add the first task' }).click();
   const taskDialog = page.getByRole('dialog', { name: 'New task' });
@@ -31,7 +32,7 @@ test('owner runs the organization end to end', async ({ page }) => {
   await taskDialog.getByRole('button', { name: 'Create task' }).click();
   await expect(page.getByRole('table').getByRole('button', { name: 'Prepare welcome pack', exact: true })).toBeVisible();
 
-  // The assignee joined the project team automatically.
+  // The assignee is on the project team.
   await page.getByRole('tab', { name: /Team/ }).click();
   await expect(page.getByRole('tab', { name: /Team/ })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('tabpanel').getByText('Hana Tadesse')).toBeVisible();

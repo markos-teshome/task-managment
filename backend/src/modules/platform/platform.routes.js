@@ -99,7 +99,15 @@ router.get('/health', async (_req, res) => ok(res, await platform.health()));
 
 router.get(
   '/organizations',
-  validate({ query: z.object({ ...pagination, search: searchTerm, status: z.enum(['ACTIVE', 'SUSPENDED']).optional(), planCode }) }),
+  validate({
+    query: z.object({
+      ...pagination,
+      search: searchTerm,
+      status: z.enum(['ACTIVE', 'SUSPENDED', 'CLOSED']).optional(),
+      planCode,
+      closureRequested: z.enum(['true', 'false']).optional().transform((v) => v === 'true'),
+    }),
+  }),
   async (req, res) => {
     const { items, meta } = await platform.listOrganizations(req.valid.query);
     ok(res, items, meta);
@@ -110,7 +118,7 @@ router.get('/organizations/:id', validate({ params: idParam }), async (req, res)
 
 router.patch(
   '/organizations/:id/status',
-  validate({ params: idParam, body: z.object({ status: z.enum(['ACTIVE', 'SUSPENDED']), reason: optionalText(500) }).strict() }),
+  validate({ params: idParam, body: z.object({ status: z.enum(['ACTIVE', 'SUSPENDED', 'CLOSED']), reason: optionalText(500) }).strict() }),
   async (req, res) => ok(res, await platform.setOrganizationStatus(req.platformAdmin, req.valid.params.id, req.valid.body, req.ip)),
 );
 

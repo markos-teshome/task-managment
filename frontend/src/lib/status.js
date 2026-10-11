@@ -62,6 +62,7 @@ export const SUBSCRIPTION_STATUS = {
 export const ORG_STATUS = {
   ACTIVE: { label: 'Active', tone: 'success', icon: CheckCircle2 },
   SUSPENDED: { label: 'Suspended', tone: 'danger', icon: Ban },
+  CLOSED: { label: 'Closed', tone: 'neutral', icon: Ban },
 };
 
 export const options = (map) => Object.entries(map).map(([value, { label }]) => ({ value, label }));

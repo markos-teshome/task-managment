@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { Errors } from '../../common/errors/AppError.js';
+import { AppError, Errors } from '../../common/errors/AppError.js';
 import { fullName, paginate, startOfTodayUtc } from '../../common/utils/http.js';
 import { assertCanCreateProject } from '../subscriptions/entitlement.service.js';
 import { resolveActiveMembers } from '../users/member.service.js';
@@ -32,12 +32,34 @@ export function visibleProjectsWhere(ctx) {
   return { organizationId: ctx.organizationId, ...(scope && { AND: [scope] }) };
 }
 
+/**
+ * Management scope (D-3): who may change a project and run its tasks. Seeing a project is not enough:
+ * PROJECT_MANAGE_ALL (Owner, Admin), or being the project's lead, creator, a team member, or the manager of
+ * its branch. Combined with the specific permission (PROJECT_UPDATE, TASK_CREATE …) by the callers.
+ */
+export function canManageProject(ctx, project) {
+  if (ctx.can('PROJECT_MANAGE_ALL')) return true;
+  const me = ctx.membershipId;
+  return (
+    project.leadId === me ||
+    project.createdById === me ||
+    (project.members ?? []).some((m) => (m.membership?.id ?? m.membershipId) === me) ||
+    project.branch?.managerId === me
+  );
+}
+
+export function assertCanManageProject(ctx, project) {
+  if (!canManageProject(ctx, project)) {
+    throw Errors.forbidden('You can view this project but not manage it. Ask its lead or an admin.', 'PROJECT_NOT_MANAGED');
+  }
+}
+
 const personSelect = { id: true, status: true, user: { select: { firstName: true, lastName: true } } };
 const presentPerson = (m) => (m ? { id: m.id, name: fullName(m.user), status: m.status } : null);
 
 const listInclude = {
   lead: { select: personSelect },
-  branch: { select: { id: true, name: true, status: true } },
+  branch: { select: { id: true, name: true, status: true, managerId: true } },
   members: { select: { membership: { select: personSelect } }, orderBy: { createdAt: 'asc' } },
 };
 
@@ -67,7 +89,8 @@ async function taskStats(projectIds) {
   return stats;
 }
 
-function present(project, stats) {
+function present(project, stats, ctx) {
+  const { managerId: _managerId, ...branch } = project.branch ?? {};
   return {
     id: project.id,
     name: project.name,
@@ -80,7 +103,10 @@ function present(project, stats) {
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     lead: presentPerson(project.lead),
-    branch: project.branch ?? null, // null = organization-wide
+    branch: project.branch ? branch : null, // null = organization-wide
+    // What the caller may do here (the server enforces the same rules).
+    inScope: ctx ? canManageProject(ctx, project) : false, // may run its tasks (with the task permissions)
+    canManage: ctx ? canManageProject(ctx, project) && ctx.can('PROJECT_UPDATE') : false,
     members: project.members.map((pm) => presentPerson(pm.membership)),
     stats: stats ?? { total: 0, completed: 0, inProgress: 0, blocked: 0, overdue: 0, progress: 0 },
   };
@@ -116,7 +142,7 @@ export async function listProjects(ctx, query) {
     prisma.project.count({ where }),
   ]);
   const stats = await taskStats(items.map((p) => p.id));
-  return { items: items.map((p) => present(p, stats.get(p.id))), meta: meta(total) };
+  return { items: items.map((p) => present(p, stats.get(p.id), ctx)), meta: meta(total) };
 }
 
 /** Loads a project the caller may see, or 404 — also for other tenants' ids. */
@@ -129,7 +155,7 @@ export async function findVisibleProject(ctx, id, db = prisma) {
 export async function getProject(ctx, id) {
   const project = await findVisibleProject(ctx, id);
   const stats = await taskStats([id]);
-  return present(project, stats.get(id));
+  return present(project, stats.get(id), ctx);
 }
 
 async function assertNameAvailable(db, organizationId, name, exceptId) {
@@ -181,12 +207,23 @@ export async function createProject(ctx, data) {
     });
     return created;
   });
-  return present(project);
+  return present(project, undefined, ctx);
 }
 
-export async function updateProject(ctx, id, data) {
+export async function updateProject(ctx, id, input) {
+  const { confirmOpenTasks, ...data } = input;
   const current = await findVisibleProject(ctx, id);
+  assertCanManageProject(ctx, current);
   if (current.archivedAt) throw Errors.conflict('Restore this project before editing it.', 'PROJECT_ARCHIVED');
+
+  // D-4: completing with unfinished tasks needs an explicit, recorded confirmation; tasks stay untouched.
+  let openTasks = 0;
+  if (data.status === 'COMPLETED' && current.status !== 'COMPLETED') {
+    openTasks = await prisma.task.count({ where: { projectId: id, status: { not: 'COMPLETED' } } });
+    if (openTasks > 0 && !confirmOpenTasks) {
+      throw new AppError(409, 'PROJECT_HAS_OPEN_TASKS', `This project still has ${openTasks} unfinished task(s). Confirm to complete it anyway — the tasks stay as they are.`, [{ field: 'openTasks', message: String(openTasks) }]);
+    }
+  }
   assertDateOrder(data.startDate !== undefined ? data.startDate : current.startDate, data.dueDate !== undefined ? data.dueDate : current.dueDate);
 
   await prisma.$transaction(async (tx) => {
@@ -205,7 +242,7 @@ export async function updateProject(ctx, id, data) {
     const base = { organizationId: ctx.organizationId, actorId: ctx.membershipId, entityType: 'PROJECT', entityId: id, projectId: id };
     const name = data.name ?? current.name;
     if (data.status && data.status !== current.status) {
-      await logActivity(tx, { ...base, action: ACTIONS.PROJECT_STATUS_CHANGED, metadata: { name, from: current.status, to: data.status } });
+      await logActivity(tx, { ...base, action: ACTIONS.PROJECT_STATUS_CHANGED, metadata: { name, from: current.status, to: data.status, ...(openTasks && { openTasks }) } });
     }
     const otherChanges = Object.keys(data).filter((k) => k !== 'status');
     if (otherChanges.length) {
@@ -217,6 +254,7 @@ export async function updateProject(ctx, id, data) {
 
 export async function setArchived(ctx, id, archived) {
   const current = await findVisibleProject(ctx, id);
+  assertCanManageProject(ctx, current);
   if (!!current.archivedAt === archived) return getProject(ctx, id);
 
   await prisma.$transaction(async (tx) => {
@@ -236,9 +274,19 @@ export async function setArchived(ctx, id, archived) {
   return getProject(ctx, id);
 }
 
-export async function deleteProject(ctx, id) {
+/**
+ * D-1: permanent deletion is the Owner's decision, only for an archived project, confirmed by typing its name.
+ * Tasks and team rows go with it; the company history keeps the record (name, task count, who, when).
+ */
+export async function deleteProject(ctx, id, { confirmName } = {}) {
+  if (!ctx.isOwner) throw Errors.forbidden('Only an owner can permanently delete a project. Archive it instead.', 'OWNER_ONLY');
   const current = await findVisibleProject(ctx, id);
+  if (!current.archivedAt) throw Errors.conflict('Archive the project before deleting it permanently.', 'PROJECT_NOT_ARCHIVED');
+  if ((confirmName ?? '').trim() !== current.name) {
+    throw Errors.validation([{ field: 'confirmName', message: 'Type the project name exactly to confirm' }]);
+  }
   await prisma.$transaction(async (tx) => {
+    const taskCount = await tx.task.count({ where: { projectId: id } });
     await tx.project.delete({ where: { id } }); // tasks and team rows cascade
     await logActivity(tx, {
       organizationId: ctx.organizationId,
@@ -246,13 +294,15 @@ export async function deleteProject(ctx, id) {
       action: ACTIONS.PROJECT_DELETED,
       entityType: 'PROJECT',
       entityId: null,
-      metadata: { name: current.name },
+      metadata: { name: current.name, taskCount },
     });
   });
 }
 
 export async function addProjectMembers(ctx, id, membershipIds) {
   const project = await findVisibleProject(ctx, id);
+  assertCanManageProject(ctx, project);
+  if (project.archivedAt) throw Errors.conflict('Restore this project before changing its team.', 'PROJECT_ARCHIVED');
   const existing = new Set(project.members.map((m) => m.membership.id));
   const toAdd = (await resolveActiveMembers(prisma, ctx.organizationId, membershipIds)).filter((m) => !existing.has(m.id));
 
@@ -278,6 +328,8 @@ export async function addProjectMembers(ctx, id, membershipIds) {
 
 export async function removeProjectMember(ctx, id, membershipId) {
   const project = await findVisibleProject(ctx, id);
+  assertCanManageProject(ctx, project);
+  if (project.archivedAt) throw Errors.conflict('Restore this project before changing its team.', 'PROJECT_ARCHIVED');
   const member = project.members.find((m) => m.membership.id === membershipId)?.membership;
   if (!member) throw Errors.notFound('Team member');
   if (project.lead?.id === membershipId) {

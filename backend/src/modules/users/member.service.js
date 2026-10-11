@@ -105,6 +105,38 @@ export async function resolveActiveMembers(db, organizationId, ids, field = 'mem
   return found;
 }
 
+/**
+ * F-02: what a person is responsible for, shown before deactivating them (or when they leave).
+ * Open tasks stay assigned (visibly "deactivated") so someone can reassign them; nothing is moved silently.
+ */
+export async function getResponsibilities(ctx, id) {
+  const member = await findMember(ctx, id);
+  const [branches, projects, openTasks] = await Promise.all([
+    prisma.branch.findMany({ where: { organizationId: ctx.organizationId, managerId: member.id, status: 'ACTIVE' }, select: { id: true, name: true } }),
+    prisma.project.findMany({ where: { organizationId: ctx.organizationId, leadId: member.id, archivedAt: null }, select: { id: true, name: true } }),
+    prisma.task.count({ where: { organizationId: ctx.organizationId, assigneeId: member.id, status: { not: 'COMPLETED' } } }),
+  ]);
+  return { managedBranches: branches, ledProjects: projects, openTasks };
+}
+
+/** Clears branch-manager and project-lead assignments of someone leaving active duty; recorded in activity. */
+export async function releaseDuties(tx, organizationId, member, actorId) {
+  const where = { organizationId, managerId: member.id };
+  const branches = await tx.branch.findMany({ where, select: { name: true } });
+  const projects = await tx.project.findMany({ where: { organizationId, leadId: member.id }, select: { name: true } });
+  if (!branches.length && !projects.length) return;
+  await tx.branch.updateMany({ where, data: { managerId: null } });
+  await tx.project.updateMany({ where: { organizationId, leadId: member.id }, data: { leadId: null } });
+  await logActivity(tx, {
+    organizationId,
+    actorId,
+    action: ACTIONS.DUTIES_RELEASED,
+    entityType: 'MEMBER',
+    entityId: member.id,
+    metadata: { memberName: fullName(member.user), branches: branches.map((b) => b.name), projects: projects.map((p) => p.name) },
+  });
+}
+
 async function findMember(ctx, id, db = prisma) {
   const member = await db.membership.findFirst({ where: { id, organizationId: ctx.organizationId }, include: memberInclude });
   if (!member) throw Errors.notFound('Member');
@@ -239,6 +271,7 @@ export async function updateMember(ctx, id, { roleId, status, jobTitle }) {
     if (status && status !== target.status) {
       const action = status === 'DEACTIVATED' ? ACTIONS.MEMBER_DEACTIVATED : ACTIONS.MEMBER_REACTIVATED;
       await logActivity(tx, { ...base, action, metadata: { memberName } });
+      if (status === 'DEACTIVATED') await releaseDuties(tx, ctx.organizationId, target, ctx.membershipId);
     }
     return result;
   });

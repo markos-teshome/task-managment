@@ -20,7 +20,7 @@ const FINAL = ['SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED'];
  * final state or after the schedule with a recoverable "still confirming" screen. Refreshing the page or
  * coming back later simply starts again from the server's answer.
  */
-export function PaymentReturnPage() {
+export function PaymentReturnPage({ billingPath = '/billing' }) {
   useDocumentTitle('Payment status');
   const [params] = useSearchParams();
   const txRef = params.get('tx_ref');
@@ -102,29 +102,38 @@ export function PaymentReturnPage() {
     );
   } else if (p.status === 'SUCCEEDED') {
     view = (
-      <Result icon={CheckCircle2} tone="success" title={`You're on ${p.plan.name}`} body="Payment confirmed. Your new limits are available now.">
+      <Result
+        icon={CheckCircle2}
+        tone="success"
+        title={`You're on ${p.plan.name}`}
+        body={
+          billingPath === '/billing'
+            ? 'Payment confirmed. Your new limits are available now.'
+            : 'Payment confirmed. Your organization stays suspended until TeamFlow support reviews it and restores access.'
+        }
+      >
         <Receipt payment={p} />
         <PlanLimits code={p.plan.code} />
-        <ButtonLink to="/team" variant="primary">Invite your team</ButtonLink>
+        {billingPath === '/billing' && <ButtonLink to="/team" variant="primary">Invite your team</ButtonLink>}
       </Result>
     );
   } else if (p.status === 'FAILED') {
     view = (
       <Result icon={XCircle} tone="danger" title="Payment failed" body={`${p.failureReason ?? 'The payment did not go through.'} Your plan has not changed.`}>
-        <ButtonLink to="/billing#plans" variant="primary">Try again</ButtonLink>
+        <ButtonLink to={`${billingPath}#plans`} variant="primary">Try again</ButtonLink>
       </Result>
     );
   } else if (p.status === 'EXPIRED') {
     view = (
       <Result icon={Clock} tone="neutral" title="Checkout expired" body="This checkout was not completed in time and your plan has not changed. If you did pay, it is confirmed automatically as soon as the provider reports it.">
         <Button onClick={restart}>Check again</Button>
-        <ButtonLink to="/billing#plans" variant="primary">Start a new checkout</ButtonLink>
+        <ButtonLink to={`${billingPath}#plans`} variant="primary">Start a new checkout</ButtonLink>
       </Result>
     );
   } else {
     view = (
       <Result icon={XCircle} tone="neutral" title="Payment cancelled" body={`${p.failureReason ?? 'The checkout was cancelled.'} No payment was taken and your plan has not changed.`}>
-        <ButtonLink to="/billing#plans" variant="primary">Choose a plan</ButtonLink>
+        <ButtonLink to={`${billingPath}#plans`} variant="primary">Choose a plan</ButtonLink>
       </Result>
     );
   }
@@ -133,7 +142,7 @@ export function PaymentReturnPage() {
     <div className="mx-auto max-w-md py-10" aria-live="polite">
       {view}
       <p className="mt-8 text-center">
-        <Link to="/billing" className="text-[13px] font-medium text-brand-700 hover:underline">
+        <Link to={billingPath} className="text-[13px] font-medium text-brand-700 hover:underline">
           Back to plan & billing
         </Link>
       </p>

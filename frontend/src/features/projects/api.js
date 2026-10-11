@@ -19,6 +19,17 @@ function useWorkMutation(fn) {
 export const useCreateProject = () => useWorkMutation((body) => api.post('/projects', body));
 export const useUpdateProject = (id) => useWorkMutation((body) => api.patch(`/projects/${id}`, body));
 export const useArchiveProject = (id) => useWorkMutation((archive) => api.post(`/projects/${id}/${archive ? 'archive' : 'restore'}`));
-export const useDeleteProject = (id) => useWorkMutation(() => api.delete(`/projects/${id}`));
+/** `onDeleted` runs before the caches refresh, so the page can leave before its project is refetched (404). */
+export function useDeleteProject(id, onDeleted) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (confirmName) => api.delete(`/projects/${id}`, { body: { confirmName } }),
+    onSuccess: () => {
+      onDeleted?.();
+      qc.removeQueries({ queryKey: ['project', id] });
+      return invalidateWork(qc);
+    },
+  });
+}
 export const useAddProjectMembers = (id) => useWorkMutation((membershipIds) => api.post(`/projects/${id}/members`, { membershipIds }));
 export const useRemoveProjectMember = (id) => useWorkMutation((membershipId) => api.delete(`/projects/${id}/members/${membershipId}`));

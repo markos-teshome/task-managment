@@ -11,12 +11,25 @@ import { PRIORITY, TASK_STATUS } from '../../lib/status.js';
 import { dueInfo } from '../../lib/format.js';
 import { cn } from '../../lib/cn.js';
 
-/** What the current user may do with a task — mirrors the API rules (the API still decides). */
+/**
+ * What the current user may do with a task — mirrors the API rules (the API still decides):
+ * task permissions apply in projects they manage or are on (`inScope`, D-3); the assignee may always move
+ * their own task; tasks of archived projects are read-only (D-11).
+ */
 export function useTaskAbilities(task) {
   const { can, workspace } = useAuth();
   const isAssignee = !!task?.assignee && task.assignee.id === workspace?.membershipId;
-  const canEdit = can('TASK_UPDATE');
-  return { canEdit, canChangeStatus: canEdit || isAssignee, canAssign: can('TASK_ASSIGN'), canDelete: can('TASK_DELETE'), isAssignee };
+  const open = !task?.project?.archived;
+  const scoped = !!task?.inScope && open;
+  const canEdit = can('TASK_UPDATE') && scoped;
+  return {
+    canEdit,
+    canChangeStatus: open && (canEdit || isAssignee),
+    canAssign: can('TASK_ASSIGN') && scoped,
+    canDelete: can('TASK_DELETE') && scoped,
+    isAssignee,
+    readOnly: !open,
+  };
 }
 
 export function DueLabel({ date, completed, className }) {

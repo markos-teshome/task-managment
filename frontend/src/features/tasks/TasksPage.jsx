@@ -16,7 +16,7 @@ import { useDocumentTitle } from '../../hooks/useDocumentTitle.js';
 import { PRIORITY, TASK_STATUS, options } from '../../lib/status.js';
 import { cn } from '../../lib/cn.js';
 
-const KEYS = ['search', 'status', 'priority', 'assigneeId', 'due', 'projectId', 'sort', 'page'];
+const KEYS = ['search', 'status', 'priority', 'assigneeId', 'due', 'projectId', 'includeArchived', 'sort', 'page'];
 const SORTS = [
   { value: 'createdAt', label: 'Newest first', order: 'desc' },
   { value: 'dueDate', label: 'Due date', order: 'asc' },
@@ -113,6 +113,13 @@ export function TasksPage() {
           options={(projects.data?.items ?? []).map((p) => ({ value: p.id, label: p.name }))}
           allLabel="All projects"
           className="max-w-52"
+        />
+        <FilterSelect
+          label="Archived projects"
+          value={filters.includeArchived}
+          onChange={(includeArchived) => setFilters({ includeArchived })}
+          allLabel="Active projects"
+          options={[{ value: 'true', label: 'Include archived' }]}
         />
         {!mine && members.data && (
           <FilterSelect

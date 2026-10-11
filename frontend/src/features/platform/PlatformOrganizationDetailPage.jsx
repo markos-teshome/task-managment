@@ -19,7 +19,7 @@ export function PlatformOrganizationDetailPage() {
   const { id } = useParams();
   const org = usePlatformQuery(`/organizations/${id}`);
   const history = usePlatformQuery('/audit-logs', { organizationId: id, pageSize: 20 });
-  const [changing, setChanging] = useState(false);
+  const [changing, setChanging] = useState(null); // target status
   useDocumentTitle(org.data?.name ?? 'Organization');
 
   const back = (
@@ -59,12 +59,26 @@ export function PlatformOrganizationDetailPage() {
           </div>
           <p className="mt-1 text-[13px] text-ink-muted">Registered {formatLongDate(o.createdAt)} · ID <code className="font-mono text-[11.5px]">{o.id}</code></p>
         </div>
-        {o.status === 'ACTIVE' ? (
-          <Button variant="danger-ghost" icon={Ban} onClick={() => setChanging(true)}>Suspend</Button>
-        ) : (
-          <Button icon={CheckCircle2} onClick={() => setChanging(true)}>Reactivate</Button>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {o.closure?.requestedAt && o.status !== 'CLOSED' && (
+            <Button variant="danger-ghost" icon={Ban} onClick={() => setChanging('CLOSED')}>Close organization</Button>
+          )}
+          {o.status === 'ACTIVE' ? (
+            <Button variant="danger-ghost" icon={Ban} onClick={() => setChanging('SUSPENDED')}>Suspend</Button>
+          ) : (
+            <Button icon={CheckCircle2} onClick={() => setChanging('ACTIVE')}>{o.status === 'CLOSED' ? 'Reopen' : 'Reactivate'}</Button>
+          )}
+        </div>
       </header>
+
+      {o.closure && (
+        <p className="mb-4 rounded-md border border-line bg-warning-50 px-3 py-2 text-[13px] text-warning-700">
+          {o.status === 'CLOSED'
+            ? `Closed ${formatLongDate(o.closure.closedAt)}. Data is kept; reopening restores access.`
+            : `The owner requested closure on ${formatLongDate(o.closure.requestedAt)}. The subscription won't renew.`}
+          {o.closure.reason && ` Reason: “${o.closure.reason}”.`}
+        </p>
+      )}
 
       <StatStrip
         className="mb-6"
@@ -132,7 +146,7 @@ export function PlatformOrganizationDetailPage() {
         )}
       </Section>
 
-      <OrganizationStatusDialog org={changing ? o : null} onClose={() => setChanging(false)} />
+      <OrganizationStatusDialog org={changing ? o : null} target={changing} onClose={() => setChanging(null)} />
     </>
   );
 }

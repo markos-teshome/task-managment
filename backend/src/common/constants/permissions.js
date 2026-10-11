@@ -19,7 +19,8 @@ export const PERMISSION_CATALOG = [
   { key: 'PROJECT_VIEW_ALL', group: 'Projects', label: 'View all', description: 'See organization-wide projects and the projects of their branches' },
   { key: 'PROJECT_CREATE', group: 'Projects', label: 'Create', description: 'Create projects' },
   { key: 'PROJECT_UPDATE', group: 'Projects', label: 'Edit', description: 'Edit projects and their team' },
-  { key: 'PROJECT_DELETE', group: 'Projects', label: 'Delete', description: 'Delete projects permanently' },
+  { key: 'PROJECT_MANAGE_ALL', group: 'Projects', label: 'Manage all', description: 'Manage every project, not only those they lead, created, are on or whose branch they manage' },
+  { key: 'PROJECT_DELETE', group: 'Projects', label: 'Delete', description: 'Permanently delete archived projects (owners only)' },
 
   { key: 'TASK_VIEW', group: 'Tasks', label: 'View', description: 'See tasks in visible projects' },
   { key: 'TASK_CREATE', group: 'Tasks', label: 'Create', description: 'Create tasks' },
@@ -40,6 +41,9 @@ export const PERMISSION_CATALOG = [
 ];
 
 export const PERMISSIONS = Object.fromEntries(PERMISSION_CATALOG.map((p) => [p.key, p.key]));
+
+/** Only the Owner role holds these; custom roles cannot be given them (D-1: permanent project deletion). */
+export const OWNER_ONLY_PERMISSIONS = ['PROJECT_DELETE'];
 export const ALL_PERMISSION_KEYS = PERMISSION_CATALOG.map((p) => p.key);
 
 const P = PERMISSIONS;
@@ -63,7 +67,7 @@ export const SYSTEM_ROLES = [
     permissions: [
       P.USER_VIEW, P.USER_CREATE, P.USER_UPDATE, P.USER_DELETE,
       P.ROLE_VIEW,
-      P.PROJECT_VIEW, P.PROJECT_VIEW_ALL, P.PROJECT_CREATE, P.PROJECT_UPDATE, P.PROJECT_DELETE,
+      P.PROJECT_VIEW, P.PROJECT_VIEW_ALL, P.PROJECT_MANAGE_ALL, P.PROJECT_CREATE, P.PROJECT_UPDATE,
       P.TASK_VIEW, P.TASK_CREATE, P.TASK_UPDATE, P.TASK_DELETE, P.TASK_ASSIGN,
       P.SUBSCRIPTION_VIEW, P.BILLING_VIEW,
       P.ACTIVITY_VIEW,
@@ -77,7 +81,7 @@ export const SYSTEM_ROLES = [
     permissions: [
       P.USER_VIEW,
       P.PROJECT_VIEW, P.PROJECT_VIEW_ALL, P.PROJECT_CREATE, P.PROJECT_UPDATE,
-      P.TASK_VIEW, P.TASK_CREATE, P.TASK_UPDATE, P.TASK_DELETE, P.TASK_ASSIGN,
+      P.TASK_VIEW, P.TASK_CREATE, P.TASK_UPDATE, P.TASK_ASSIGN,
       P.ACTIVITY_VIEW,
       P.BRANCH_VIEW,
     ],

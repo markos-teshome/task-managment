@@ -117,9 +117,11 @@ export function RolesPage() {
 function PermissionGrid({ catalog, value, onToggle, disabled, isAllowed }) {
   const groups = useMemo(() => {
     const map = new Map();
-    for (const p of catalog) map.set(p.group, [...(map.get(p.group) ?? []), p]);
+    // Owner-only permissions (permanent project deletion) can't be given to other roles, so they are only
+    // listed on the locked Owner role.
+    for (const p of catalog) if (disabled || !p.ownerOnly) map.set(p.group, [...(map.get(p.group) ?? []), p]);
     return [...map.entries()].sort(([a], [b]) => GROUP_ORDER.indexOf(a) - GROUP_ORDER.indexOf(b));
-  }, [catalog]);
+  }, [catalog, disabled]);
 
   return (
     <div className="divide-y divide-line">

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { MoreHorizontal, Mail, RotateCcw, SearchX, ShieldCheck, UserMinus, UserPlus, UserX, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../auth/AuthProvider.jsx';
-import { useMembers, useOrganization, useRemoveMember, useResendInvitation, useUpdateMember } from './api.js';
+import { useMemberResponsibilities, useMembers, useOrganization, useRemoveMember, useResendInvitation, useUpdateMember } from './api.js';
 import { useRoles } from '../roles/api.js';
 import { InviteMemberModal, ChangeRoleModal } from './MemberModals.jsx';
 import { PageHeader, Toolbar } from '../../components/layout/PageHeader.jsx';
@@ -216,7 +216,24 @@ export function TeamPage() {
               })
             : setStatus(confirm.member, 'DEACTIVATED')
         }
-      />
+      >
+        {confirm?.kind === 'deactivate' && <Responsibilities memberId={confirm.member.id} />}
+      </ConfirmDialog>
     </>
+  );
+}
+
+/** F-02: deactivating someone releases them as branch manager and project lead — say so before it happens. */
+function Responsibilities({ memberId }) {
+  const { data } = useMemberResponsibilities(memberId);
+  if (!data) return null;
+  const { managedBranches, ledProjects, openTasks } = data;
+  if (!managedBranches.length && !ledProjects.length && !openTasks) return null;
+  return (
+    <ul className="mt-3 list-disc space-y-1 rounded-md border border-line bg-slate-50 py-2 pl-7 pr-3 text-[12.5px] text-ink-muted">
+      {managedBranches.length > 0 && <li>No longer manager of {managedBranches.map((b) => b.name).join(', ')}.</li>}
+      {ledProjects.length > 0 && <li>No longer lead of {ledProjects.map((p) => p.name).join(', ')}.</li>}
+      {openTasks > 0 && <li>{openTasks} unfinished task{openTasks === 1 ? '' : 's'} stay assigned to them — reassign as needed.</li>}
+    </ul>
   );
 }

@@ -52,7 +52,7 @@ export function BillingPage() {
   );
 }
 
-function CurrentPlan({ data }) {
+export function CurrentPlan({ data }) {
   const { can } = useAuth();
   const action = useSubscriptionAction();
   const [confirmCancel, setConfirmCancel] = useState(false);
@@ -123,7 +123,7 @@ function CurrentPlan({ data }) {
   );
 }
 
-function PlanComparison({ data, canBuy, onChoose }) {
+export function PlanComparison({ data, canBuy, onChoose }) {
   const currentCode = data.plan.code;
   const paidLive = data.subscription?.currentPeriodEnd && !data.isFallback;
   return (
@@ -185,7 +185,7 @@ function PlanComparison({ data, canBuy, onChoose }) {
 }
 
 /** Step 2 of the upgrade: confirm what changes, then hand over to the payment provider. */
-function ReviewModal({ plan, current, onClose }) {
+export function ReviewModal({ plan, current, onClose }) {
   const checkout = useCheckout();
   const [error, setError] = useState(null);
   useEffect(() => setError(null), [plan]);
@@ -252,7 +252,8 @@ function ReviewModal({ plan, current, onClose }) {
   );
 }
 
-function PaymentHistory() {
+/** `returnPath` is where a pending checkout is re-checked (the billing-resolution screen has its own). */
+export function PaymentHistory({ returnPath = '/billing/return' }) {
   const [page, setPage] = useState(1);
   const { data, isLoading, error, refetch } = usePayments({ page, pageSize: 10 });
   const navigate = useNavigate();
@@ -274,7 +275,7 @@ function PaymentHistory() {
           <span className="flex items-center gap-2">
             <AlertTriangle size={15} aria-hidden="true" /> A payment for {pending.plan.name} is waiting for confirmation.
           </span>
-          <Button size="sm" onClick={() => navigate(`/billing/return?tx_ref=${pending.txRef}`)}>
+          <Button size="sm" onClick={() => navigate(`${returnPath}?tx_ref=${pending.txRef}`)}>
             Check status
           </Button>
         </div>

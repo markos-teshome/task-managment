@@ -50,7 +50,7 @@ const FALLBACK_MESSAGES = {
 };
 
 const NO_REFRESH = ['/auth/login', '/auth/refresh', '/auth/logout'];
-const BLOCKING_CODES = ['MEMBERSHIP_INACTIVE', 'ORGANIZATION_SUSPENDED', 'NO_WORKSPACE'];
+const BLOCKING_CODES = ['MEMBERSHIP_INACTIVE', 'ORGANIZATION_SUSPENDED', 'ORGANIZATION_CLOSED', 'NO_WORKSPACE'];
 
 function buildUrl(path, query) {
   const url = `${BASE}${path}`;

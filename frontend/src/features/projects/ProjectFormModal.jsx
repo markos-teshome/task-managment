@@ -7,7 +7,7 @@ import { useCreateProject, useUpdateProject } from './api.js';
 import { useMemberOptions } from '../team/api.js';
 import { MemberPicker } from '../team/MemberPicker.jsx';
 import { useAssignableBranches, useHasSeveralBranches } from '../branches/api.js';
-import { Modal, DialogBody, DialogFooter, DialogClose } from '../../components/ui/Dialog.jsx';
+import { ConfirmDialog, Modal, DialogBody, DialogFooter, DialogClose } from '../../components/ui/Dialog.jsx';
 import { Field, FormAlert, Input, Select, Textarea } from '../../components/ui/Form.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { PlanLimitNotice } from '../../components/feedback/States.jsx';
@@ -42,6 +42,8 @@ export function ProjectFormModal({ open, onOpenChange, project, onCreated }) {
   const branchOptions = project?.branch && !branches.some((b) => b.id === project.branch.id) ? [project.branch, ...branches] : branches;
   const showBranch = severalBranches && (branchOptions.length > 0 || !!project?.branch);
   const [error, setError] = useState(null);
+  // D-4: completing with unfinished tasks asks for an explicit confirmation (the server records it).
+  const [openTasksPrompt, setOpenTasksPrompt] = useState(null);
 
   const form = useForm({
     resolver: zodResolver(schema),
@@ -94,14 +96,23 @@ export function ProjectFormModal({ open, onOpenChange, project, onCreated }) {
       for (const key of Object.keys(body)) if (body[key] === original[key]) delete body[key];
       if (!Object.keys(body).length) return close(false);
     }
+    save(body);
+  };
+
+  const save = (body) => {
     const mutation = editing ? update : create;
     mutation.mutate(body, {
       onSuccess: (saved) => {
+        setOpenTasksPrompt(null);
         toast.success(editing ? 'Project updated' : 'Project created');
         close(false);
         onCreated?.(saved);
       },
-      onError: (err) => !applyServerErrors(form, err) && setError(err),
+      onError: (err) => {
+        if (err.code === 'PROJECT_HAS_OPEN_TASKS') return setOpenTasksPrompt({ body, count: Number(err.details?.[0]?.message) || null });
+        setOpenTasksPrompt(null);
+        if (!applyServerErrors(form, err)) setError(err);
+      },
     });
   };
 
@@ -176,6 +187,16 @@ export function ProjectFormModal({ open, onOpenChange, project, onCreated }) {
           </Button>
         </DialogFooter>
       </form>
+      <ConfirmDialog
+        open={!!openTasksPrompt}
+        onOpenChange={(o) => !o && setOpenTasksPrompt(null)}
+        title="Complete with unfinished tasks?"
+        description={`This project still has ${openTasksPrompt?.count ?? 'some'} unfinished task(s). Completing it leaves them exactly as they are — nothing is completed or deleted — and the history records that you chose to complete it anyway.`}
+        confirmLabel="Complete anyway"
+        tone="primary"
+        loading={update.isPending}
+        onConfirm={() => save({ ...openTasksPrompt.body, confirmOpenTasks: true })}
+      />
     </Modal>
   );
 }

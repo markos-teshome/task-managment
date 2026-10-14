@@ -9,21 +9,31 @@ import { createBrevoSender } from "./brevo.js";
  */
 export const testOutbox = [];
 
-const brevo = !config.isTest && config.BREVO_API_KEY ? createBrevoSender({ apiKey: config.BREVO_API_KEY, from: config.MAIL_FROM }) : null;
+const brevo =
+  !config.isTest && config.BREVO_API_KEY
+    ? createBrevoSender({
+        apiKey: config.BREVO_API_KEY,
+        from: config.MAIL_FROM,
+      })
+    : null;
 
-const smtp = config.isTest || brevo
-  ? null
-  : nodemailer.createTransport({
-      host: config.SMTP_HOST,
-      port: config.SMTP_PORT,
-      secure: config.SMTP_PORT === 465, // implicit TLS on 465, STARTTLS otherwise
-      auth: { user: config.SMTP_USER, pass: config.SMTP_PASS },
-      // Fail within seconds when the mail server can't be reached (the default waits 2 minutes, so a request that
-      // sends an email — e.g. an invitation — hung until the proxy gave up with a 502).
-      connectionTimeout: 10_000,
-      greetingTimeout: 10_000,
-      socketTimeout: 20_000,
-    });
+const smtp =
+  config.isTest || brevo
+    ? null
+    : nodemailer.createTransport({
+        host: config.SMTP_HOST,
+        port: config.SMTP_PORT,
+        secure: config.SMTP_PORT === 465, // implicit TLS on 465, STARTTLS otherwise
+        auth: { user: config.SMTP_USER, pass: config.SMTP_PASS },
+        tls: {
+          rejectUnauthorized: false,
+        },
+        // Fail within seconds when the mail server can't be reached (the default waits 2 minutes, so a request that
+        // sends an email — e.g. an invitation — hung until the proxy gave up with a 502).
+        connectionTimeout: 10_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 20_000,
+      });
 
 /** Last start-up check, shown in the platform health view. */
 export const mailerStatus = { verified: null, checkedAt: null };
@@ -32,8 +42,13 @@ export const mailerStatus = { verified: null, checkedAt: null };
 export async function verifyMailer() {
   if (brevo) {
     const result = await brevo.verify();
-    if (result.ok) logger.info({ sender: brevo.sender.email }, "Brevo email API verified");
-    else logger.error({ err: result.error }, "Brevo email API check failed — emails cannot be sent");
+    if (result.ok)
+      logger.info({ sender: brevo.sender.email }, "Brevo email API verified");
+    else
+      logger.error(
+        { err: result.error },
+        "Brevo email API check failed — emails cannot be sent",
+      );
     Object.assign(mailerStatus, { verified: result.ok, checkedAt: new Date() });
     return result.ok;
   }
@@ -65,8 +80,16 @@ export async function sendMail({ to, subject, text, html, template }) {
   }
   if (brevo) {
     const result = await brevo.send({ to, subject, text, html });
-    if (result.ok) logger.info({ to, template, messageId: result.messageId, delivered: true }, "Email sent");
-    else logger.error({ err: result.error, to, template }, "Email delivery failed");
+    if (result.ok)
+      logger.info(
+        { to, template, messageId: result.messageId, delivered: true },
+        "Email sent",
+      );
+    else
+      logger.error(
+        { err: result.error, to, template },
+        "Email delivery failed",
+      );
     return result.ok;
   }
   try {
